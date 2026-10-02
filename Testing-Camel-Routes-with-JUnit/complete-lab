@@ -1,0 +1,382 @@
+Lab 6: Testing Camel Routes with JUnit
+Objectives
+By the end of this lab, students will be able to:
+
+Set up unit tests for Apache Camel routes using the JUnit 5 framework
+Create and configure mock endpoints to simulate external systems
+Write test cases that validate route behavior with different inputs
+Use Camel test assertions to verify message processing and routing logic
+Interpret Maven Surefire test output to confirm route correctness
+Prerequisites
+Before starting this lab, students should have:
+
+Basic understanding of Apache Camel concepts (routes, endpoints, processors)
+Familiarity with Java programming language
+Knowledge of Maven build tool and dependency management
+Understanding of unit testing concepts and experience with JUnit
+Completed previous Camel labs covering basic route creation
+Lab Environment: This lab is performed on a self-owned or sandboxed practice machine (a local workstation or an assigned cloud lab machine). All work is local â�� no external network calls or third-party systems are involved, which makes this a safe, fully isolated environment for learning integration testing techniques.
+
+Required tools (install if not already present):
+
+# Verify Java (11 or higher required)
+java -version
+
+# Verify Maven (3.6+ required)
+mvn -version
+If Java or Maven are missing, install them using your platform's package manager (for example sudo apt install openjdk-17-jdk maven on Debian/Ubuntu, or brew install openjdk maven on macOS). No other manual installation is required â�� all Camel and JUnit dependencies are declared in the Maven pom.xml created in Task 1 and will be downloaded automatically by Maven.
+
+Task 1: Create the Project and a Testable Camel Route
+Subtask 1.1: Create Maven Project Structure
+Create the project directory and standard Maven layout:
+mkdir camel-testing-lab
+cd camel-testing-lab
+mkdir -p src/main/java/com/example/camel
+mkdir -p src/test/java/com/example/camel
+Create the pom.xml file with all required dependencies:
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>camel-testing-lab</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.20.2</camel.version>
+        <junit.version>5.9.2</junit.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-direct</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-test-junit5</artifactId>
+            <version>${camel.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0-M9</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Deliverable: A camel-testing-lab directory containing pom.xml and the empty source folders. Running mvn validate from inside the directory should print BUILD SUCCESS.
+
+Subtask 1.2: Create a Sample Camel Route
+Create src/main/java/com/example/camel/OrderProcessingRoute.java:
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class OrderProcessingRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Route: order priority routing
+        from("direct:processOrder")
+            .routeId("order-processing-route")
+            .log("Processing order: ${body}")
+            .choice()
+                .when(xpath("/order/priority[text()='HIGH']"))
+                    .log("High priority order detected")
+                    .to("direct:highPriorityQueue")
+                .when(xpath("/order/priority[text()='MEDIUM']"))
+                    .log("Medium priority order detected")
+                    .to("direct:mediumPriorityQueue")
+                .otherwise()
+                    .log("Low priority order detected")
+                    .to("direct:lowPriorityQueue")
+            .end();
+
+        // Route: order validation
+        from("direct:validateOrder")
+            .routeId("order-validation-route")
+            .log("Validating order: ${body}")
+            .choice()
+                .when(xpath("/order/customerId[text()='']"))
+                    .throwException(new IllegalArgumentException("Customer ID is required"))
+                .when(xpath("/order/amount[number(.) <= 0]"))
+                    .throwException(new IllegalArgumentException("Order amount must be positive"))
+                .otherwise()
+                    .log("Order validation successful")
+                    .setHeader("ValidationStatus", constant("VALID"))
+            .end();
+
+        // Route: order transformation - extract customer id as the new body
+        from("direct:transformOrder")
+            .routeId("order-transformation-route")
+            .log("Transforming order format")
+            .setHeader("ProcessedTimestamp", simple("${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .transform().xpath("/order/customerId/text()", String.class)
+            .setHeader("CustomerId", body())
+            .to("direct:orderTransformed");
+    }
+}
+Deliverable: The route file compiles with mvn compile and produces BUILD SUCCESS.
+
+Task 2: Test Routing Logic with Mock Endpoints
+Subtask 2.1: Create the Test Class with Mock Endpoints
+Create src/test/java/com/example/camel/OrderProcessingRouteTest.java:
+package com.example.camel;
+
+import org.apache.camel.EndpointInject;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit5.CamelTestSupport;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public class OrderProcessingRouteTest extends CamelTestSupport {
+
+    @EndpointInject("mock:highPriorityQueue")
+    private MockEndpoint highPriorityMock;
+
+    @EndpointInject("mock:mediumPriorityQueue")
+    private MockEndpoint mediumPriorityMock;
+
+    @EndpointInject("mock:lowPriorityQueue")
+    private MockEndpoint lowPriorityMock;
+
+    @EndpointInject("mock:orderTransformed")
+    private MockEndpoint orderTransformedMock;
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new OrderProcessingRoute();
+    }
+
+    @Override
+    protected String isMockEndpoints() {
+        // Replace these direct endpoints with mock endpoints at test time
+        return "direct:highPriorityQueue|direct:mediumPriorityQueue|direct:lowPriorityQueue|direct:orderTransformed";
+    }
+
+    @BeforeEach
+    void resetMocks() {
+        highPriorityMock.reset();
+        mediumPriorityMock.reset();
+        lowPriorityMock.reset();
+        orderTransformedMock.reset();
+    }
+
+    private String createOrder(String priority, String customerId, String amount) {
+        return String.format(
+            "<order>" +
+                "<orderId>12345</orderId>" +
+                "<customerId>%s</customerId>" +
+                "<priority>%s</priority>" +
+                "<amount>%s</amount>" +
+                "<product>Laptop</product>" +
+            "</order>",
+            customerId, priority, amount
+        );
+    }
+
+    @Test
+    @DisplayName("Routes are created and started")
+    void testRouteCreation() throws Exception {
+        assertEquals(3, context.getRoutes().size());
+        assertTrue(context.getRouteController().getRouteStatus("order-processing-route").isStarted());
+    }
+
+    @Test
+    @DisplayName("High priority order is routed to the high priority queue")
+    void testHighPriorityOrderRouting() throws Exception {
+        String order = createOrder("HIGH", "CUST001", "1500.00");
+
+        highPriorityMock.expectedMessageCount(1);
+        highPriorityMock.expectedBodiesReceived(order);
+        mediumPriorityMock.expectedMessageCount(0);
+        lowPriorityMock.expectedMessageCount(0);
+
+        template.sendBody("direct:processOrder", order);
+
+        assertMockEndpointsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Medium priority order is routed to the medium priority queue")
+    void testMediumPriorityOrderRouting() throws Exception {
+        String order = createOrder("MEDIUM", "CUST002", "750.00");
+
+        highPriorityMock.expectedMessageCount(0);
+        mediumPriorityMock.expectedMessageCount(1);
+        mediumPriorityMock.expectedBodiesReceived(order);
+        lowPriorityMock.expectedMessageCount(0);
+
+        template.sendBody("direct:processOrder", order);
+
+        assertMockEndpointsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Order without explicit HIGH/MEDIUM priority falls to the low priority queue")
+    void testLowPriorityOrderRouting() throws Exception {
+        String order = createOrder("LOW", "CUST003", "250.00");
+
+        highPriorityMock.expectedMessageCount(0);
+        mediumPriorityMock.expectedMessageCount(0);
+        lowPriorityMock.expectedMessageCount(1);
+        lowPriorityMock.expectedBodiesReceived(order);
+
+        template.sendBody("direct:processOrder", order);
+
+        assertMockEndpointsSatisfied();
+    }
+
+    @Test
+    @DisplayName("Valid order passes validation and sets ValidationStatus header")
+    void testValidOrderValidation() throws Exception {
+        String order = createOrder("HIGH", "CUST001", "1500.00");
+
+        template.sendBody("direct:validateOrder", order);
+
+        // No exception should have been thrown; re-send through the header check
+        var result = template.request("direct:validateOrder", exchange -> exchange.getIn().setBody(order));
+        assertEquals("VALID", result.getIn().getHeader("ValidationStatus"));
+    }
+
+    @Test
+    @DisplayName("Order with empty customer ID throws a validation exception")
+    void testInvalidOrderEmptyCustomerId() {
+        String order = createOrder("HIGH", "", "1000.00");
+
+        Exception ex = assertThrows(Exception.class, () ->
+            template.sendBody("direct:validateOrder", order));
+
+        assertTrue(ex.getCause().getMessage().contains("Customer ID is required"));
+    }
+
+    @Test
+    @DisplayName("Order with negative amount throws a validation exception")
+    void testInvalidOrderNegativeAmount() {
+        String order = createOrder("MEDIUM", "CUST004", "-100.00");
+
+        Exception ex = assertThrows(Exception.class, () ->
+            template.sendBody("direct:validateOrder", order));
+
+        assertTrue(ex.getCause().getMessage().contains("Order amount must be positive"));
+    }
+
+    @Test
+    @DisplayName("Transformation route extracts customer id as the new body")
+    void testOrderTransformation() throws Exception {
+        String order = createOrder("HIGH", "CUST001", "1500.00");
+
+        orderTransformedMock.expectedMessageCount(1);
+        orderTransformedMock.expectedBodiesReceived("CUST001");
+        orderTransformedMock.expectedHeaderReceived("CustomerId", "CUST001");
+
+        template.sendBody("direct:transformOrder", order);
+
+        assertMockEndpointsSatisfied();
+        assertTrue(orderTransformedMock.getExchanges().get(0).getIn().getHeader("ProcessedTimestamp") != null);
+    }
+}
+Deliverable: A test file with eight @Test methods covering route startup, all three priority branches, both validation failure paths, and the transformation route.
+
+Subtask 2.2: Understand How Mock Assertions Work
+Before running the tests, note the mechanics used above:
+
+isMockEndpoints() tells CamelTestSupport to transparently substitute matching direct: endpoints with auto-created mock: endpoints at test time, without changing the production route code.
+expectedMessageCount(n) and expectedBodiesReceived(...) register expectations on a MockEndpoint before a message is sent.
+assertMockEndpointsSatisfied() blocks (with a default timeout) until either all expectations are met or the timeout expires, then throws an AssertionError describing which expectation failed.
+Deliverable: No code to write here â�� confirm you understand this flow before proceeding, since Subtask 2.3 depends on reading assertion failures correctly.
+
+Task 3: Run the Tests and Interpret the Results
+Subtask 3.1: Compile and Run the Test Suite
+From the camel-testing-lab directory, run:
+mvn clean test
+Maven will download dependencies on first run, compile the project, and execute all tests in src/test/java.
+Deliverable: The build finishes with BUILD SUCCESS.
+
+Subtask 3.2: Recognize Successful Test Output
+A successful run prints a Surefire summary similar to this:
+
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.example.camel.OrderProcessingRouteTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.42 s -- in com.example.camel.OrderProcessingRouteTest
+[INFO]
+[INFO] Results:
+[INFO]
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0
+[INFO]
+[INFO] BUILD SUCCESS
+Key things to check:
+
+Tests run: 8, Failures: 0, Errors: 0 confirms every test method executed and passed.
+BUILD SUCCESS at the end means Maven considers the whole build (compile + test) healthy.
+Maven also writes a plain-text report per test class under target/surefire-reports/, for example target/surefire-reports/com.example.camel.OrderProcessingRouteTest.txt. View it with:
+
+cat target/surefire-reports/com.example.camel.OrderProcessingRouteTest.txt
+A passing report looks like:
+
+-------------------------------------------------------------------------------
+Test set: com.example.camel.OrderProcessingRouteTest
+-------------------------------------------------------------------------------
+Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.42 s -- in com.example.camel.OrderProcessingRouteTest
+Subtask 3.3: Interpret a Failing Test
+To see what a failure looks like, temporarily edit testHighPriorityOrderRouting and change highPriorityMock.expectedMessageCount(1); to highPriorityMock.expectedMessageCount(2);, then run mvn test again. You should see:
+
+[ERROR] Tests run: 8, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 1.51 s <<< FAILURE! -- in com.example.camel.OrderProcessingRouteTest
+[ERROR] testHighPriorityOrderRouting  Time elapsed: 0.31 s  <<< FAILURE!
+org.apache.camel.component.mock.AssertionError: mock://highPriorityQueue Expected message count: 2 Received: 1
+The corresponding file in target/surefire-reports/ will contain the same stack trace, and the build ends with BUILD FAILURE instead of BUILD SUCCESS. This is the pattern to look for when diagnosing any failing test: the mock endpoint name, the expectation that was not met, and the actual received count. Revert the change back to expectedMessageCount(1); before continuing.
+
+Subtask 3.4: Run a Single Test Class
+You can target one test class directly, which is useful once you have many test classes in a project:
+
+mvn test -Dtest=OrderProcessingRouteTest
+Deliverable: A terminal transcript (or screenshot) showing Tests run: 8, Failures: 0, Errors: 0 and BUILD SUCCESS, plus the contents of target/surefire-reports/com.example.camel.OrderProcessingRouteTest.txt confirming the same result.
+
+Expected Outcomes
+A working Maven project containing a Camel route with priority-based routing, validation, and transformation logic
+A JUnit 5 test class using CamelTestSupport and mock endpoints that verifies all branches of the route logic, including two failure scenarios
+The ability to read Maven Surefire console output and target/surefire-reports/ files to confirm whether tests passed or failed and why
+Troubleshooting
+Issue 1: Mock endpoint never receives any messages, and assertMockEndpointsSatisfied() times out. Symptom: the test hangs for several seconds then fails with an AssertionError reporting Received: 0. Diagnostic hint: check that the string returned by isMockEndpoints() exactly matches the endpoint URIs used inside the route (including the direct: scheme), and confirm the message is actually being sent to the entry point of that route, not a different one.
+
+Issue 2: throwException test fails because no exception was thrown, or the wrong message is asserted. Symptom: assertThrows does not fail immediately, but the assertion on ex.getCause().getMessage() throws a NullPointerException or reports a mismatched string. Diagnostic hint: remember that ProducerTemplate.sendBody() wraps route exceptions in a CamelExecutionException, so you must inspect ex.getCause().getMessage() rather than ex.getMessage() directly, and double check the exact XPath condition that should trigger the exception for your test's input data.
+
+Conclusion
+In this lab, you built a small but realistic Camel application with priority-based routing, order validation, and message transformation, then wrote a complete JUnit 5 test suite for it using CamelTestSupport and mock endpoints. Along the way you learned how isMockEndpoints() transparently substitutes real endpoints with mocks during testing, how to set expectations with expectedMessageCount and expectedBodiesReceived, and how to read both the Maven console output and the target/surefire-reports/ files to confirm whether a test suite passed and to diagnose exactly which assertion failed when it did not. These are the core skills needed to safely refactor and extend Camel integration routes with confidence that existing behavior has not regressed. As a next step, consider exploring AdviceWithRouteBuilder for intercepting and modifying routes at test time without touching production code, and investigate Camel's camel-test-spring-junit5 module if your routes are wired together using Spring or Spring Boot.
