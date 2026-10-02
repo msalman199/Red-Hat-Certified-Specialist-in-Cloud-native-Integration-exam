@@ -1,0 +1,632 @@
+Lab 4: Implementing Custom Processors in Camel Routes
+Objectives
+By the end of this lab, you will be able to:
+
+Understand the role of custom processors in Apache Camel integration patterns
+Implement custom processors by creating classes that implement the Processor interface
+Insert custom processors into Camel routes to modify message content and headers
+Test Camel routes with custom processors using different message types and formats
+Apply best practices for custom processor development in enterprise integration scenarios
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Java programming concepts (classes, interfaces, methods)
+Familiarity with Apache Camel fundamentals and route building
+Knowledge of Maven project structure and dependency management
+Understanding of message exchange patterns in integration frameworks
+Experience with basic Linux command-line operations
+Required Software
+This lab assumes a Linux-based practice environment (a local VM or an isolated cloud sandbox you control) with the following installed:
+
+# Verify Java (needs JDK 11 or higher)
+java -version
+
+# Verify Maven (needs 3.6+)
+mvn -version
+If either command is not found, install them with your distribution's package manager, for example:
+
+# Debian/Ubuntu-based systems
+sudo apt-get update
+sudo apt-get install -y openjdk-17-jdk maven
+
+# RHEL/Fedora-based systems
+sudo dnf install -y java-17-openjdk-devel maven
+All other dependencies (Apache Camel libraries, SLF4J, JUnit) are pulled automatically by Maven from the project's pom.xml, so no manual installation is required for them.
+
+Task 1: Create a Custom Processor Implementing the Processor Interface
+Subtask 1.1: Set Up the Maven Project Structure
+Create a new Maven project for the custom processor implementation.
+
+# Navigate to your home directory
+cd ~
+
+# Create a new Maven project
+mvn archetype:generate \
+  -DgroupId=com.alnafi.camel.lab4 \
+  -DartifactId=custom-processor-lab \
+  -DarchetypeArtifactId=maven-archetype-quickstart \
+  -DarchetypeVersion=1.4 \
+  -DinteractiveMode=false
+
+# Navigate to the project directory
+cd custom-processor-lab
+
+# Remove the archetype's sample class and test (we will add our own files)
+rm -f src/main/java/com/alnafi/camel/lab4/App.java
+rm -f src/test/java/com/alnafi/camel/lab4/AppTest.java
+Subtask 1.2: Configure Maven Dependencies
+Replace the generated pom.xml with the following configuration, which adds Camel's core, main, direct, and timer components plus logging and test dependencies:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi.camel.lab4</groupId>
+    <artifactId>custom-processor-lab</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.20.0</camel.version>
+        <slf4j.version>1.7.36</slf4j.version>
+    </properties>
+
+    <dependencies>
+        <!-- Apache Camel Core -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Main for standalone applications -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Direct component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-direct</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Camel Timer component -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-timer</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <!-- JUnit for testing -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Camel Test support -->
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-test</artifactId>
+            <version>${camel.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.3: Create the Custom Processor Class
+Create the package directory and the first custom processor, which uppercases message text, appends a timestamp, and sets metadata headers.
+
+mkdir -p src/main/java/com/alnafi/camel/lab4/processors
+Write the following file completely:
+
+package com.alnafi.camel.lab4.processors;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Custom processor that transforms incoming messages by:
+ * 1. Converting text to uppercase
+ * 2. Adding a timestamp
+ * 3. Adding custom headers
+ */
+public class MessageTransformProcessor implements Processor {
+
+    private static final Logger logger = LoggerFactory.getLogger(MessageTransformProcessor.class);
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        logger.info("Processing message in custom processor");
+
+        String originalMessage = exchange.getIn().getBody(String.class);
+        logger.info("Original message: {}", originalMessage);
+
+        String transformedMessage = transformMessage(originalMessage);
+        exchange.getIn().setBody(transformedMessage);
+
+        addCustomHeaders(exchange, transformedMessage);
+
+        logger.info("Transformed message: {}", transformedMessage);
+    }
+
+    private String transformMessage(String originalMessage) {
+        if (originalMessage == null) {
+            return "NULL_MESSAGE_PROCESSED_AT_" + System.currentTimeMillis();
+        }
+        return originalMessage.toUpperCase() + " [PROCESSED_AT_" + System.currentTimeMillis() + "]";
+    }
+
+    private void addCustomHeaders(Exchange exchange, String transformedMessage) {
+        exchange.getIn().setHeader("ProcessedBy", "MessageTransformProcessor");
+        exchange.getIn().setHeader("ProcessingTimestamp", System.currentTimeMillis());
+        exchange.getIn().setHeader("MessageLength", transformedMessage.length());
+    }
+}
+Save this as src/main/java/com/alnafi/camel/lab4/processors/MessageTransformProcessor.java.
+
+Subtask 1.4: Create an Advanced Custom Processor
+Create a second processor that enriches messages using a simulated lookup table and sets a priority header based on message type.
+
+Save the following as src/main/java/com/alnafi/camel/lab4/processors/MessageEnrichmentProcessor.java:
+
+package com.alnafi.camel.lab4.processors;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Advanced custom processor that enriches messages with additional data
+ * and handles different message formats
+ */
+public class MessageEnrichmentProcessor implements Processor {
+
+    private static final Logger logger = LoggerFactory.getLogger(MessageEnrichmentProcessor.class);
+
+    private static final Map<String, String> enrichmentData = new HashMap<>();
+
+    static {
+        enrichmentData.put("USER001", "John Doe - Premium Customer");
+        enrichmentData.put("USER002", "Jane Smith - Standard Customer");
+        enrichmentData.put("USER003", "Bob Johnson - VIP Customer");
+    }
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        logger.info("Starting message enrichment process");
+
+        String messageBody = exchange.getIn().getBody(String.class);
+        String messageType = exchange.getIn().getHeader("MessageType", String.class);
+
+        logger.info("Processing message type: {}", messageType);
+        logger.info("Original message body: {}", messageBody);
+
+        String enrichedMessage = enrichMessage(messageBody, messageType);
+        exchange.getIn().setBody(enrichedMessage);
+
+        addProcessingMetadata(exchange, messageType);
+
+        logger.info("Message enrichment completed");
+    }
+
+    private String enrichMessage(String originalMessage, String messageType) {
+        StringBuilder enriched = new StringBuilder();
+        enriched.append("[").append(messageType != null ? messageType : "UNKNOWN").append("] ");
+
+        if (originalMessage != null && originalMessage.startsWith("USER")) {
+            String userId = originalMessage.split(" ")[0];
+            String userData = enrichmentData.get(userId);
+
+            if (userData != null) {
+                enriched.append("ENRICHED: ").append(userData);
+                enriched.append(" | Original: ").append(originalMessage);
+            } else {
+                enriched.append("UNKNOWN_USER: ").append(originalMessage);
+            }
+        } else {
+            enriched.append("STANDARD: ").append(originalMessage);
+        }
+
+        enriched.append(" | Enriched at: ").append(System.currentTimeMillis());
+
+        return enriched.toString();
+    }
+
+    private void addProcessingMetadata(Exchange exchange, String messageType) {
+        exchange.getIn().setHeader("EnrichedBy", "MessageEnrichmentProcessor");
+        exchange.getIn().setHeader("EnrichmentTimestamp", System.currentTimeMillis());
+        exchange.getIn().setHeader("OriginalMessageType", messageType);
+        exchange.getIn().setHeader("EnrichmentApplied", true);
+
+        if ("USER_REQUEST".equals(messageType)) {
+            exchange.getIn().setHeader("Priority", "HIGH");
+        } else if ("SYSTEM_MESSAGE".equals(messageType)) {
+            exchange.getIn().setHeader("Priority", "MEDIUM");
+        } else {
+            exchange.getIn().setHeader("Priority", "LOW");
+        }
+    }
+}
+Deliverable for Task 1: Two compiled processor classes under src/main/java/com/alnafi/camel/lab4/processors/. Verify with:
+
+mvn -q compile
+echo "Compile exit code: $?"
+Expected result: Compile exit code: 0 with no errors printed.
+
+Task 2: Insert the Custom Processors into Camel Routes
+Subtask 2.1: Create a Route Builder with Custom Processors
+Create the routes package and route builder that wires both processors into direct routes, plus a timer-driven route for automatic testing.
+
+mkdir -p src/main/java/com/alnafi/camel/lab4/routes
+Save the following as src/main/java/com/alnafi/camel/lab4/routes/CustomProcessorRouteBuilder.java:
+
+package com.alnafi.camel.lab4.routes;
+
+import com.alnafi.camel.lab4.processors.MessageEnrichmentProcessor;
+import com.alnafi.camel.lab4.processors.MessageTransformProcessor;
+import org.apache.camel.builder.RouteBuilder;
+
+/**
+ * Route builder that demonstrates custom processor integration
+ */
+public class CustomProcessorRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Route 1: Basic message transformation using custom processor
+        from("direct:transform")
+            .routeId("message-transform-route")
+            .log("Received message for transformation: ${body}")
+            .process(new MessageTransformProcessor())
+            .log("Message after transformation: ${body}")
+            .log("Custom headers added: ProcessedBy=${header.ProcessedBy}, "
+                 + "Timestamp=${header.ProcessingTimestamp}")
+            .to("direct:output");
+
+        // Route 2: Advanced message enrichment using custom processor
+        from("direct:enrich")
+            .routeId("message-enrichment-route")
+            .log("Received message for enrichment: ${body}")
+            .log("Message type: ${header.MessageType}")
+            .process(new MessageEnrichmentProcessor())
+            .log("Message after enrichment: ${body}")
+            .log("Enrichment metadata: EnrichedBy=${header.EnrichedBy}, "
+                 + "Priority=${header.Priority}")
+            .to("direct:output");
+
+        // Route 3: Combined processing - both processors in sequence
+        from("direct:combined")
+            .routeId("combined-processing-route")
+            .log("Starting combined processing for: ${body}")
+            .process(new MessageTransformProcessor())
+            .log("After transformation: ${body}")
+            .process(new MessageEnrichmentProcessor())
+            .log("After enrichment: ${body}")
+            .log("Final headers: ProcessedBy=${header.ProcessedBy}, "
+                 + "EnrichedBy=${header.EnrichedBy}, Priority=${header.Priority}")
+            .to("direct:output");
+
+        // Route 4: Timer-based route for automatic testing
+        from("timer:autoTest?period=5000&repeatCount=3")
+            .routeId("auto-test-route")
+            .setBody(constant("Hello from timer route"))
+            .setHeader("MessageType", constant("SYSTEM_MESSAGE"))
+            .log("Auto-generated message: ${body}")
+            .to("direct:transform");
+
+        // Output route - final destination for all processed messages
+        from("direct:output")
+            .routeId("output-route")
+            .log("=== FINAL PROCESSED MESSAGE ===")
+            .log("Body: ${body}")
+            .log("All Headers: ${headers}")
+            .log("=== END OF PROCESSING ===");
+    }
+}
+Subtask 2.2: Create the Main Application Class
+Save the following as src/main/java/com/alnafi/camel/lab4/CustomProcessorApplication.java. This class starts the Camel context, sends five test messages through the routes, waits for the timer route to fire, and then shuts down cleanly.
+
+package com.alnafi.camel.lab4;
+
+import com.alnafi.camel.lab4.routes.CustomProcessorRouteBuilder;
+import org.apache.camel.CamelContext;
+import org.apache.camel.ProducerTemplate;
+import org.apache.camel.impl.DefaultCamelContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Main application class for custom processor demonstration
+ */
+public class CustomProcessorApplication {
+
+    private static final Logger logger = LoggerFactory.getLogger(CustomProcessorApplication.class);
+
+    public static void main(String[] args) throws Exception {
+        logger.info("Starting Custom Processor Lab Application");
+
+        CamelContext camelContext = new DefaultCamelContext();
+
+        try {
+            camelContext.addRoutes(new CustomProcessorRouteBuilder());
+            camelContext.start();
+            logger.info("Camel context started successfully");
+
+            ProducerTemplate producer = camelContext.createProducerTemplate();
+
+            testRoutes(producer);
+
+            logger.info("Application running. Timer route will fire 3 times over 15 seconds.");
+            Thread.sleep(20000);
+
+        } finally {
+            camelContext.stop();
+            logger.info("Camel context stopped");
+        }
+    }
+
+    private static void testRoutes(ProducerTemplate producer) throws Exception {
+        logger.info("=== Starting Route Testing ===");
+
+        logger.info("--- Test 1: Basic Transformation ---");
+        producer.sendBody("direct:transform", "hello world from camel");
+        Thread.sleep(500);
+
+        logger.info("--- Test 2: User Message Enrichment ---");
+        producer.sendBodyAndHeader("direct:enrich", "USER001 requesting account balance",
+                                 "MessageType", "USER_REQUEST");
+        Thread.sleep(500);
+
+        logger.info("--- Test 3: Unknown User Message ---");
+        producer.sendBodyAndHeader("direct:enrich", "USER999 unknown user request",
+                                 "MessageType", "USER_REQUEST");
+        Thread.sleep(500);
+
+        logger.info("--- Test 4: Combined Processing ---");
+        producer.sendBodyAndHeader("direct:combined", "USER002 premium service request",
+                                 "MessageType", "USER_REQUEST");
+        Thread.sleep(500);
+
+        logger.info("--- Test 5: System Message ---");
+        producer.sendBodyAndHeader("direct:enrich", "System maintenance scheduled",
+                                 "MessageType", "SYSTEM_MESSAGE");
+        Thread.sleep(500);
+
+        logger.info("=== Route Testing Completed ===");
+    }
+}
+Subtask 2.3: Build and Compile the Project
+mvn clean compile
+Deliverable for Task 2: A successful BUILD SUCCESS message from Maven, confirming the route builder and application class compile against the processors created in Task 1.
+
+Task 3: Test the Routes with Different Messages
+Subtask 3.1: Run the Application and Observe Output
+mvn exec:java -Dexec.mainClass="com.alnafi.camel.lab4.CustomProcessorApplication"
+Expected result: log lines showing each of the five manual tests, followed by three automatic timer-triggered messages, similar to:
+
+INFO com.alnafi.camel.lab4.CustomProcessorApplication - Starting Custom Processor Lab Application
+INFO com.alnafi.camel.lab4.CustomProcessorApplication - Camel context started successfully
+INFO com.alnafi.camel.lab4.CustomProcessorApplication - --- Test 1: Basic Transformation ---
+INFO message-transform-route - Received message for transformation: hello world from camel
+INFO com.alnafi.camel.lab4.processors.MessageTransformProcessor - Original message: hello world from camel
+INFO com.alnafi.camel.lab4.processors.MessageTransformProcessor - Transformed message: HELLO WORLD FROM CAMEL [PROCESSED_AT_...]
+INFO output-route - === FINAL PROCESSED MESSAGE ===
+The process exits on its own after roughly 20 seconds once the Thread.sleep in main completes and the context stops.
+
+Subtask 3.2: Create Unit Tests for the Transform Processor
+mkdir -p src/test/java/com/alnafi/camel/lab4/processors
+Save the following as src/test/java/com/alnafi/camel/lab4/processors/MessageTransformProcessorTest.java:
+
+package com.alnafi.camel.lab4.processors;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.impl.DefaultCamelContext;
+import org.apache.camel.support.DefaultExchange;
+import org.junit.Before;
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Unit tests for MessageTransformProcessor
+ */
+public class MessageTransformProcessorTest {
+
+    private MessageTransformProcessor processor;
+    private Exchange exchange;
+
+    @Before
+    public void setUp() {
+        processor = new MessageTransformProcessor();
+        exchange = new DefaultExchange(new DefaultCamelContext());
+    }
+
+    @Test
+    public void testBasicMessageTransformation() throws Exception {
+        exchange.getIn().setBody("hello world");
+
+        processor.process(exchange);
+
+        String transformedMessage = exchange.getIn().getBody(String.class);
+        assertTrue("Message should be uppercase", transformedMessage.startsWith("HELLO WORLD"));
+        assertTrue("Message should contain timestamp", transformedMessage.contains("PROCESSED_AT_"));
+    }
+
+    @Test
+    public void testNullMessageHandling() throws Exception {
+        exchange.getIn().setBody(null, String.class);
+
+        processor.process(exchange);
+
+        String transformedMessage = exchange.getIn().getBody(String.class);
+        assertTrue("Null message should be handled",
+                  transformedMessage.startsWith("NULL_MESSAGE_PROCESSED_AT_"));
+    }
+
+    @Test
+    public void testCustomHeadersAdded() throws Exception {
+        exchange.getIn().setBody("test message");
+
+        processor.process(exchange);
+
+        assertEquals("ProcessedBy header should be set",
+                    "MessageTransformProcessor",
+                    exchange.getIn().getHeader("ProcessedBy"));
+        assertNotNull("ProcessingTimestamp should be set",
+                     exchange.getIn().getHeader("ProcessingTimestamp"));
+        assertNotNull("MessageLength should be set",
+                     exchange.getIn().getHeader("MessageLength"));
+    }
+}
+Subtask 3.3: Create an Integration Test for the Routes
+mkdir -p src/test/java/com/alnafi/camel/lab4/routes
+Save the following as src/test/java/com/alnafi/camel/lab4/routes/CustomProcessorRouteTest.java:
+
+package com.alnafi.camel.lab4.routes;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.mock.MockEndpoint;
+import org.apache.camel.test.junit4.CamelTestSupport;
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Integration tests for custom processor routes
+ */
+public class CustomProcessorRouteTest extends CamelTestSupport {
+
+    @Override
+    protected RouteBuilder createRouteBuilder() throws Exception {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+                CustomProcessorRouteBuilder customRoutes = new CustomProcessorRouteBuilder();
+                customRoutes.setContext(context());
+                customRoutes.configure();
+
+                // Redirect the shared output endpoint to a mock for assertions
+                interceptSendToEndpoint("direct:output")
+                    .skipSendToOriginalEndpoint()
+                    .to("mock:result");
+            }
+        };
+    }
+
+    @Test
+    public void testTransformRoute() throws Exception {
+        MockEndpoint mockResult = getMockEndpoint("mock:result");
+        mockResult.expectedMessageCount(1);
+
+        template.sendBody("direct:transform", "test message");
+
+        assertMockEndpointsSatisfied();
+
+        String resultBody = mockResult.getReceivedExchanges().get(0).getIn().getBody(String.class);
+        assertTrue("Message should be transformed to uppercase", resultBody.startsWith("TEST MESSAGE"));
+        assertTrue("Message should contain processing timestamp", resultBody.contains("PROCESSED_AT_"));
+    }
+
+    @Test
+    public void testEnrichmentRoute() throws Exception {
+        MockEndpoint mockResult = getMockEndpoint("mock:result");
+        mockResult.expectedMessageCount(1);
+
+        template.sendBodyAndHeader("direct:enrich", "USER001 account inquiry",
+                                 "MessageType", "USER_REQUEST");
+
+        assertMockEndpointsSatisfied();
+
+        String resultBody = mockResult.getReceivedExchanges().get(0).getIn().getBody(String.class);
+        assertTrue("Message should be enriched with user data",
+                  resultBody.contains("John Doe - Premium Customer"));
+        assertTrue("Message should contain message type", resultBody.startsWith("[USER_REQUEST]"));
+    }
+
+    @Test
+    public void testCombinedProcessing() throws Exception {
+        MockEndpoint mockResult = getMockEndpoint("mock:result");
+        mockResult.expectedMessageCount(1);
+
+        template.sendBodyAndHeader("direct:combined", "USER002 service request",
+                                 "MessageType", "USER_REQUEST");
+
+        assertMockEndpointsSatisfied();
+
+        Exchange resultExchange = mockResult.getReceivedExchanges().get(0);
+        String resultBody = resultExchange.getIn().getBody(String.class);
+
+        assertTrue("Message should contain enrichment data",
+                  resultBody.contains("Jane Smith - Standard Customer"));
+        assertEquals("Should have ProcessedBy header",
+                    "MessageTransformProcessor",
+                    resultExchange.getIn().getHeader("ProcessedBy"));
+        assertEquals("Should have EnrichedBy header",
+                    "MessageEnrichmentProcessor",
+                    resultExchange.getIn().getHeader("EnrichedBy"));
+    }
+}
+Note that this test intercepts the direct:output endpoint rather than redefining it, since the timer route in CustomProcessorRouteBuilder would otherwise also fire during the test.
+
+Subtask 3.4: Run the Tests
+mvn test
+Expected result: Maven reports Tests run: 6, Failures: 0, Errors: 0 across the two test classes, followed by BUILD SUCCESS.
+
+Deliverable for Task 3: Console output from mvn exec:java showing all five manual test messages processed, plus a passing mvn test run with zero failures.
+
+Expected Outcomes
+A working Maven project containing two custom processors (MessageTransformProcessor and MessageEnrichmentProcessor) that implement the Camel Processor interface
+A route builder that chains custom processors individually and in combination, plus a timer-driven route that exercises the transform processor automatically
+A passing unit and integration test suite that verifies message transformation, header enrichment, and combined processing behavior
+Troubleshooting
+Symptom: mvn compile fails with "package org.apache.camel does not exist". Diagnostic hint: check that the pom.xml was saved with the exact camel.version property and dependency coordinates shown in Subtask 1.2, and confirm Maven can reach its remote repository (run mvn -o compile to check if you are accidentally in offline mode).
+Symptom: integration test testTransformRoute intermittently fails with "message count mismatch". Diagnostic hint: the timer route also sends messages into direct:transform and therefore into the intercepted direct:output; check whether the timer fired during your test run and consider excluding it or lowering repeatCount when running tests interactively.
+Conclusion
+In this lab, you built a complete Apache Camel project from scratch and implemented two custom processors by hand, coding the Processor interface directly rather than relying on built-in transformations. You learned how to insert processors into routes using the fluent .process() DSL method, how to chain multiple processors to compose more complex transformations, and how headers set by one processor become available to the next stage of the route. You also validated this behavior with both JUnit unit tests against a processor in isolation and Camel integration tests using CamelTestSupport and mock endpoints. Going forward, consider exploring Camel's built-in Enterprise Integration Pattern components (such as content-based routers and aggregators) to see where a custom processor is the right tool versus where a standard Camel construct would be simpler and more maintainable.
