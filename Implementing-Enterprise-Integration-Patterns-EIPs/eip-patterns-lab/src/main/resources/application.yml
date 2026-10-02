@@ -1,0 +1,21 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: eip-patterns-lab
+
+camel:
+  springboot:
+    name: EIP-Patterns-Camel-Context
+  component:
+    servlet:
+      mapping:
+        context-path: /camel/*
+
+logging:
+  level:
+    com.alnafi.eip: DEBUG
+    org.apache.camel: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"

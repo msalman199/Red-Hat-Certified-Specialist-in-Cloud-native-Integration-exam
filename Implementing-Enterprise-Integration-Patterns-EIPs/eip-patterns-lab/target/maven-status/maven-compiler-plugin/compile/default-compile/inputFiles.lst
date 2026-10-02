@@ -1,0 +1,8 @@
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/routes/SplitterRoute.java
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/controller/BatchOrderController.java
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/model/BatchOrder.java
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/controller/OrderController.java
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/EipPatternsApplication.java
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/model/CustomerOrder.java
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/routes/ContentBasedRouterRoute.java
+/home/ubuntu/eip-lab/eip-patterns-lab/src/main/java/com/alnafi/eip/App.java

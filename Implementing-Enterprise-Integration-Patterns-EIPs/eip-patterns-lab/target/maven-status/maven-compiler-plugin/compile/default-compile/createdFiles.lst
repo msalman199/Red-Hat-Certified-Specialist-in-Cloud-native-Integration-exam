@@ -1,0 +1,3 @@
+com/alnafi/eip/model/CustomerOrder.class
+com/alnafi/eip/model/BatchOrder.class
+com/alnafi/eip/controller/BatchOrderController.class
