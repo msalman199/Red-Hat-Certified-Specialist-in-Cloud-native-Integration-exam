@@ -1,0 +1,1 @@
+Hello from Apache Camel! This is a test message.
