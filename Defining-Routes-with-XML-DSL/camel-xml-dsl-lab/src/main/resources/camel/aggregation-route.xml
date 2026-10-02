@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://camel.apache.org/schema/spring
+        http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+    <!-- Route 4: Message Aggregation -->
+    <route id="messageAggregationRoute">
+        <description>Demonstrates message aggregation in XML DSL</description>
+        
+        <from uri="timer:aggregationDemo?period=10000"/>
+        
+        <!-- Generate multiple messages -->
+        <split>
+            <simple>1,2,3,4,5</simple>
+            <setBody>
+                <simple>{"messageId": "${body}", "data": "Sample data ${body}", "timestamp": "${date:now:yyyy-MM-dd'T'HH:mm:ss}"}</simple>
+            </setBody>
+            <setHeader name="BatchId">
+                <simple>${date:now:yyyyMMddHHmm}</simple>
+            </setHeader>
+            <to uri="direct:aggregateMessages"/>
+        </split>
+    </route>
+
+    <!-- Aggregation Route -->
+    <route id="aggregationProcessor">
+        <from uri="direct:aggregateMessages"/>
+        
+        <aggregate strategyRef="myAggregationStrategy" completionSize="5" completionTimeout="15000">
+            <correlationExpression>
+                <header>BatchId</header>
+            </correlationExpression>
+            
+            <log message="Aggregating message: ${body}"/>
+            
+            <to uri="direct:processAggregatedBatch"/>
+        </aggregate>
+    </route>
+
+    <!-- Process Aggregated Batch -->
+    <route id="processAggregatedBatch">
+        <from uri="direct:processAggregatedBatch"/>
+        
+        <log message="Processing aggregated batch with ${header.CamelAggregatedSize} messages"/>
+        
+        <setHeader name="AggregatedTimestamp">
+            <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+        </setHeader>
+        
+        <transform>
+            <simple>{"batchId": "${header.BatchId}", "messageCount": ${header.CamelAggregatedSize}, "aggregatedAt": "${header.AggregatedTimestamp}", "messages": ${body}}</simple>
+        </transform>
+        
+        <to uri="file:data/output/aggregated?fileName=batch-${header.BatchId}.json"/>
+        <log message="Aggregated batch saved successfully"/>
+    </route>
+
+</routes>

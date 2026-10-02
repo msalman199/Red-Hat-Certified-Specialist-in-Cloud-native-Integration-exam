@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://camel.apache.org/schema/spring
+        http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+    <!-- Route 1: Basic File Processing Route -->
+    <route id="fileProcessingRoute">
+        <description>Basic file processing route using XML DSL</description>
+        
+        <!-- Consumer: Monitor input directory for new files -->
+        <from uri="file:data/input?noop=true&amp;delay=5000"/>
+        
+        <!-- Log the incoming message -->
+        <log message="Processing file: ${header.CamelFileName}"/>
+        
+        <!-- Add custom header -->
+        <setHeader name="ProcessedTimestamp">
+            <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+        </setHeader>
+        
+        <!-- Transform message body to uppercase -->
+        <transform>
+            <simple>${bodyAs(String).toUpperCase()}</simple>
+        </transform>
+        
+        <!-- Log the transformation -->
+        <log message="File content transformed to uppercase"/>
+        
+        <!-- Producer: Write to output directory -->
+        <to uri="file:data/output"/>
+        
+        <!-- Log completion -->
+        <log message="File ${header.CamelFileName} processed successfully at ${header.ProcessedTimestamp}"/>
+    </route>
+
+</routes>

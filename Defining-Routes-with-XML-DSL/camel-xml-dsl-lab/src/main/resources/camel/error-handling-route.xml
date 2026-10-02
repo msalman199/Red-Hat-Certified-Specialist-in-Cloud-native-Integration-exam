@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://camel.apache.org/schema/spring
+        http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+    <!-- Route 3: Error Handling and Dead Letter Channel -->
+    <route id="errorHandlingRoute" errorHandlerRef="myErrorHandler">
+        <description>Demonstrates error handling in XML DSL</description>
+        
+        <from uri="timer:errorDemo?period=45000"/>
+        
+        <!-- Generate random scenario -->
+        <setHeader name="Scenario">
+            <simple>${random(1,4)}</simple>
+        </setHeader>
+        
+        <log message="Testing error scenario: ${header.Scenario}"/>
+        
+        <choice>
+            <when>
+                <simple>${header.Scenario} == '1'</simple>
+                <setBody>
+                    <constant>Success: Normal processing completed</constant>
+                </setBody>
+                <log message="Normal processing: ${body}"/>
+            </when>
+            <when>
+                <simple>${header.Scenario} == '2'</simple>
+                <throwException exceptionType="java.lang.IllegalArgumentException" message="Simulated validation error"/>
+            </when>
+            <when>
+                <simple>${header.Scenario} == '3'</simple>
+                <throwException exceptionType="java.io.IOException" message="Simulated I/O error"/>
+            </when>
+            <otherwise>
+                <throwException exceptionType="java.lang.RuntimeException" message="Simulated runtime error"/>
+            </otherwise>
+        </choice>
+        
+        <to uri="file:data/output/success?fileName=success-${date:now:yyyyMMdd-HHmmss}.txt"/>
+    </route>
+
+    <!-- Error Handler Configuration -->
+    <errorHandler id="myErrorHandler" type="DeadLetterChannel" 
+                  deadLetterUri="direct:errorProcessor"
+                  useOriginalMessage="true">
+        <redeliveryPolicy maximumRedeliveries="2" 
+                         redeliveryDelay="1000" 
+                         retryAttemptedLogLevel="WARN"/>
+    </errorHandler>
+
+    <!-- Error Processing Route -->
+    <route id="errorProcessor">
+        <from uri="direct:errorProcessor"/>
+        
+        <log message="Error occurred: ${exception.message}" loggingLevel="ERROR"/>
+        
+        <setHeader name="ErrorTimestamp">
+            <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+        </setHeader>
+        
+        <setHeader name="ErrorType">
+            <simple>${exception.class.simpleName}</simple>
+        </setHeader>
+        
+        <setBody>
+            <simple>Error Report:
+Timestamp: ${header.ErrorTimestamp}
+Error Type: ${header.ErrorType}
+Error Message: ${exception.message}
+Original Body: ${body}
+            </simple>
+        </setBody>
+        
+        <to uri="file:data/output/errors?fileName=error-${date:now:yyyyMMdd-HHmmss}.txt"/>
+        <log message="Error logged to file system"/>
+    </route>
+
+</routes>

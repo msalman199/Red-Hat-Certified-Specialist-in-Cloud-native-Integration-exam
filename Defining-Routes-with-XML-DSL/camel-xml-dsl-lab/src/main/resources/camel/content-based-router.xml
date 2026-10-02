@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://camel.apache.org/schema/spring
+        http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+    <!-- Route 2: Content-Based Router with Message Transformation -->
+    <route id="contentBasedRouter">
+        <description>Content-based routing with message transformation</description>
+        
+        <!-- Timer-based trigger every 30 seconds -->
+        <from uri="timer:contentRouter?period=30000"/>
+        
+        <!-- Generate sample data -->
+        <setBody>
+            <simple>{"orderId": "${random(1000,9999)}", "customerType": "${random(1,3)}", "amount": ${random(100,1000)}, "timestamp": "${date:now:yyyy-MM-dd'T'HH:mm:ss}"}</simple>
+        </setBody>
+        
+        <!-- Log the generated order -->
+        <log message="Generated order: ${body}"/>
+        
+        <!-- Parse customer type for routing decision -->
+        <setHeader name="CustomerType">
+            <jsonpath>$.customerType</jsonpath>
+        </setHeader>
+        
+        <!-- Content-based routing -->
+        <choice>
+            <when>
+                <simple>${header.CustomerType} == '1'</simple>
+                <log message="Processing PREMIUM customer order"/>
+                <setHeader name="Priority">
+                    <constant>HIGH</constant>
+                </setHeader>
+                <setHeader name="Discount">
+                    <constant>0.15</constant>
+                </setHeader>
+                <to uri="direct:premiumProcessing"/>
+            </when>
+            <when>
+                <simple>${header.CustomerType} == '2'</simple>
+                <log message="Processing STANDARD customer order"/>
+                <setHeader name="Priority">
+                    <constant>MEDIUM</constant>
+                </setHeader>
+                <setHeader name="Discount">
+                    <constant>0.05</constant>
+                </setHeader>
+                <to uri="direct:standardProcessing"/>
+            </when>
+            <otherwise>
+                <log message="Processing BASIC customer order"/>
+                <setHeader name="Priority">
+                    <constant>LOW</constant>
+                </setHeader>
+                <setHeader name="Discount">
+                    <constant>0.0</constant>
+                </setHeader>
+                <to uri="direct:basicProcessing"/>
+            </otherwise>
+        </choice>
+    </route>
+
+    <!-- Premium Customer Processing Route -->
+    <route id="premiumProcessing">
+        <from uri="direct:premiumProcessing"/>
+        
+        <log message="Premium processing: Applying ${header.Discount} discount"/>
+        
+        <!-- Transform JSON to include processing info -->
+        <setBody>
+            <simple>{"originalOrder": ${body}, "customerTier": "PREMIUM", "priority": "${header.Priority}", "discount": ${header.Discount}, "processedAt": "${date:now:yyyy-MM-dd'T'HH:mm:ss}"}</simple>
+        </setBody>
+        
+        <to uri="file:data/output/premium?fileName=premium-order-${date:now:yyyyMMdd-HHmmss}-${random(1000,9999)}.json"/>
+        <log message="Premium order saved successfully"/>
+    </route>
+
+    <!-- Standard Customer Processing Route -->
+    <route id="standardProcessing">
+        <from uri="direct:standardProcessing"/>
+        
+        <log message="Standard processing: Applying ${header.Discount} discount"/>
+        
+        <setBody>
+            <simple>{"originalOrder": ${body}, "customerTier": "STANDARD", "priority": "${header.Priority}", "discount": ${header.Discount}, "processedAt": "${date:now:yyyy-MM-dd'T'HH:mm:ss}"}</simple>
+        </setBody>
+        
+        <to uri="file:data/output/standard?fileName=standard-order-${date:now:yyyyMMdd-HHmmss}-${random(1000,9999)}.json"/>
+        <log message="Standard order saved successfully"/>
+    </route>
+
+    <!-- Basic Customer Processing Route -->
+    <route id="basicProcessing">
+        <from uri="direct:basicProcessing"/>
+        
+        <log message="Basic processing: No discount applied"/>
+        
+        <setBody>
+            <simple>{"originalOrder": ${body}, "customerTier": "BASIC", "priority": "${header.Priority}", "discount": ${header.Discount}, "processedAt": "${date:now:yyyy-MM-dd'T'HH:mm:ss}"}</simple>
+        </setBody>
+        
+        <to uri="file:data/output/basic?fileName=basic-order-${date:now:yyyyMMdd-HHmmss}-${random(1000,9999)}.json"/>
+        <log message="Basic order saved successfully"/>
+    </route>
+
+</routes>
