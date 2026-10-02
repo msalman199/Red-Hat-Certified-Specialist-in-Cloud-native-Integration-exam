@@ -1,0 +1,5 @@
+com/alnafi/camel/errorhandling/ErrorSimulationService.class
+com/alnafi/camel/errorhandling/DLQRouteBuilder.class
+com/alnafi/camel/errorhandling/ErrorHandlingRouteBuilder.class
+com/alnafi/camel/errorhandling/DLQTestApplication.class
+com/alnafi/camel/errorhandling/RetryTestApplication.class

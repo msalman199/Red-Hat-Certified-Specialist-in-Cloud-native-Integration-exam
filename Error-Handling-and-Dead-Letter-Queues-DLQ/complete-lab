@@ -1,0 +1,400 @@
+Lab 7: Error Handling and Dead Letter Queues (DLQ) with Apache Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Implement robust error handling mechanisms in Apache Camel routes using onException()
+Configure retry logic with redelivery policies and exponential backoff
+Create and configure Dead Letter Queues (DLQ) for failed message processing
+Simulate various error scenarios to test error handling and DLQ routing behavior
+Analyze failed messages in DLQ output to support troubleshooting and monitoring
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts (routes, endpoints, components)
+Familiarity with Java programming fundamentals
+Knowledge of the Maven build tool
+Basic Linux command-line skills
+This lab uses a self-contained, embedded ActiveMQ Artemis broker started in-process, so no external broker installation or network access is required. All work happens in an isolated local project directory.
+
+Required tools and their installation (skip any step if the tool is already installed on your machine):
+
+java -version
+mvn -version
+You need OpenJDK 11 (or later) and Maven 3.8+. If they are missing, install them with your distribution's package manager, for example:
+
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven
+Lab Environment Setup
+Task 1: Initialize the Project and Verify the Toolchain
+Subtask 1.1: Create the Project Structure
+Create a working directory for the lab and move into it:
+mkdir -p ~/camel-labs/lab7-error-handling
+cd ~/camel-labs/lab7-error-handling
+Create the Maven directory layout:
+mkdir -p src/main/java/com/alnafi/camel/errorhandling
+mkdir -p src/main/resources
+Create the pom.xml file with all required dependencies:
+cat > pom.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi.camel</groupId>
+    <artifactId>error-handling-lab</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.20.2</camel.version>
+        <activemq.version>5.17.3</activemq.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jms</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.activemq</groupId>
+            <artifactId>activemq-client</artifactId>
+            <version>${activemq.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.activemq</groupId>
+            <artifactId>activemq-broker</artifactId>
+            <version>${activemq.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+EOF
+Deliverable: Running mvn -q validate from inside lab7-error-handling completes with no errors, confirming the POM is well-formed and dependencies resolve.
+
+mvn -q validate
+echo "POM validated successfully"
+Task 2: Implement Retry Logic with onException()
+Subtask 2.1: Create a Service That Simulates Transient and Permanent Errors
+Create a service class that throws different exception types based on message content, simulating real-world transient failures (like network blips) versus permanent failures (like bad data):
+cat > src/main/java/com/alnafi/camel/errorhandling/ErrorSimulationService.java << 'EOF'
+package com.alnafi.camel.errorhandling;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class ErrorSimulationService {
+    private static final Logger logger = LoggerFactory.getLogger(ErrorSimulationService.class);
+    private int callCount = 0;
+
+    public String processMessage(String message) throws Exception {
+        callCount++;
+        logger.info("Processing message attempt #{}: {}", callCount, message);
+
+        if (message.contains("NETWORK_ERROR")) {
+            throw new RuntimeException("Network connection failed");
+        } else if (message.contains("VALIDATION_ERROR")) {
+            throw new IllegalArgumentException("Invalid message format");
+        } else if (message.contains("RETRY_SUCCESS") && callCount < 3) {
+            throw new RuntimeException("Temporary failure - attempt " + callCount);
+        }
+
+        logger.info("Message processed successfully: {}", message);
+        return "Processed: " + message;
+    }
+
+    public void resetCallCount() {
+        callCount = 0;
+    }
+}
+EOF
+Subtask 2.2: Build a Route with Retry and Validation Handling
+Create the route builder. It defines two separate onException clauses: one that retries transient RuntimeException failures with exponential backoff, and one that fails validation errors immediately without retrying, since retrying bad data will never fix it:
+cat > src/main/java/com/alnafi/camel/errorhandling/ErrorHandlingRouteBuilder.java << 'EOF'
+package com.alnafi.camel.errorhandling;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.LoggingLevel;
+
+public class ErrorHandlingRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(IllegalArgumentException.class)
+            .log(LoggingLevel.ERROR, "Validation error - no retry: ${exception.message}")
+            .maximumRedeliveries(0)
+            .handled(true)
+            .to("direct:validation-error-handler");
+
+        onException(RuntimeException.class)
+            .log(LoggingLevel.WARN, "RuntimeException occurred: ${exception.message}")
+            .maximumRedeliveries(3)
+            .redeliveryDelay(1000)
+            .backOffMultiplier(2)
+            .useExponentialBackOff()
+            .retryAttemptedLogLevel(LoggingLevel.WARN)
+            .retriesExhaustedLogLevel(LoggingLevel.ERROR)
+            .handled(true)
+            .to("direct:failure-handler");
+
+        from("direct:process-message")
+            .routeId("main-processing-route")
+            .log("Received message: ${body}")
+            .bean(ErrorSimulationService.class, "processMessage")
+            .log("Successfully processed: ${body}")
+            .to("direct:success-handler");
+
+        from("direct:success-handler")
+            .routeId("success-handler")
+            .log("Message processing completed successfully: ${body}")
+            .to("file:output/success?fileName=success-${date:now:yyyyMMdd-HHmmssSSS}.txt");
+
+        from("direct:validation-error-handler")
+            .routeId("validation-error-handler")
+            .log("Handling validation error for message: ${body}")
+            .setBody(simple("Validation failed for: ${body}"))
+            .to("file:output/validation-errors?fileName=validation-error-${date:now:yyyyMMdd-HHmmssSSS}.txt");
+
+        from("direct:failure-handler")
+            .routeId("failure-handler")
+            .log("Handling exhausted-retry failure for message: ${body}")
+            .setBody(simple("Failed after retries: ${body}"))
+            .to("file:output/failures?fileName=failure-${date:now:yyyyMMdd-HHmmssSSS}.txt");
+    }
+}
+EOF
+Note that onException(IllegalArgumentException.class) is declared before the broader onException(RuntimeException.class) clause. Camel matches the most specific exception type regardless of declaration order, but listing the specific one first keeps the route intent readable.
+
+Subtask 2.3: Run the Retry Test Application
+Create a small runnable application that sends test messages through the route and waits for processing to complete:
+cat > src/main/java/com/alnafi/camel/errorhandling/RetryTestApplication.java << 'EOF'
+package com.alnafi.camel.errorhandling;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.ProducerTemplate;
+import org.apache.camel.impl.DefaultCamelContext;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+public class RetryTestApplication {
+
+    public static void main(String[] args) throws Exception {
+        CamelContext context = new DefaultCamelContext();
+        context.addRoutes(new ErrorHandlingRouteBuilder());
+
+        Files.createDirectories(Paths.get("output/success"));
+        Files.createDirectories(Paths.get("output/validation-errors"));
+        Files.createDirectories(Paths.get("output/failures"));
+
+        context.start();
+
+        ProducerTemplate template = context.createProducerTemplate();
+
+        System.out.println("=== Testing Retry Logic ===");
+
+        System.out.println("\n1. Testing message that succeeds after retries...");
+        template.sendBody("direct:process-message", "RETRY_SUCCESS - This will fail twice then succeed");
+        Thread.sleep(6000);
+
+        System.out.println("\n2. Testing validation error (no retries)...");
+        template.sendBody("direct:process-message", "VALIDATION_ERROR - Invalid format");
+        Thread.sleep(1000);
+
+        System.out.println("\n3. Testing successful message...");
+        template.sendBody("direct:process-message", "SUCCESS - This message will process normally");
+        Thread.sleep(1000);
+
+        context.stop();
+        System.out.println("Test completed. Check the output directory for results.");
+    }
+}
+EOF
+Compile and run the application:
+mvn -q clean compile
+mvn -q exec:java -Dexec.mainClass="com.alnafi.camel.errorhandling.RetryTestApplication"
+Verify the generated output files:
+ls output/success/
+ls output/validation-errors/
+Deliverable: The console log shows the RETRY_SUCCESS message logged as a WARN retry attempt on the first two tries and succeeding on the third (visible as Processing message attempt #3 in the log), the VALIDATION_ERROR message logged once at ERROR with no retry attempts, and one file present in each of output/success/ and output/validation-errors/.
+
+Task 3: Configure a Dead Letter Queue and Verify Error Routing
+Subtask 3.1: Build a Route with Dead Letter Queue Destinations
+Create a route builder that sends exhausted or non-retryable failures to distinct DLQ endpoints (implemented here as direct endpoints feeding dedicated file outputs, so the DLQ concept can be exercised without standing up an external broker). Each DLQ route tags the message with metadata useful for later analysis:
+cat > src/main/java/com/alnafi/camel/errorhandling/DLQRouteBuilder.java << 'EOF'
+package com.alnafi.camel.errorhandling;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.LoggingLevel;
+
+public class DLQRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(IllegalArgumentException.class)
+            .log(LoggingLevel.ERROR, "Validation error: ${exception.message}")
+            .maximumRedeliveries(0)
+            .setHeader("ErrorCategory", constant("VALIDATION"))
+            .setHeader("FailureTime", simple("${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .handled(true)
+            .to("direct:dlq.validation");
+
+        onException(RuntimeException.class)
+            .log(LoggingLevel.WARN, "RuntimeException occurred: ${exception.message}")
+            .maximumRedeliveries(3)
+            .redeliveryDelay(500)
+            .backOffMultiplier(2)
+            .useExponentialBackOff()
+            .retryAttemptedLogLevel(LoggingLevel.WARN)
+            .retriesExhaustedLogLevel(LoggingLevel.ERROR)
+            .setHeader("ErrorCategory", constant("RUNTIME"))
+            .setHeader("FailureTime", simple("${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .handled(true)
+            .to("direct:dlq.runtime");
+
+        from("direct:input.messages")
+            .routeId("input-message-processor")
+            .log("Processing message from input queue: ${body}")
+            .bean(ErrorSimulationService.class, "processMessage")
+            .log("Message processed successfully: ${body}")
+            .to("direct:output.success");
+
+        from("direct:output.success")
+            .routeId("success-consumer")
+            .log("Success: ${body}")
+            .to("file:output/success?fileName=success-${date:now:yyyyMMdd-HHmmssSSS}.txt");
+
+        from("direct:dlq.runtime")
+            .routeId("dlq-runtime-monitor")
+            .log(LoggingLevel.ERROR, "DLQ Runtime Error: ${body}")
+            .setBody(simple("RuntimeError at ${header.FailureTime}: ${body}"))
+            .to("file:output/dlq/runtime-errors?fileName=runtime-error-${date:now:yyyyMMdd-HHmmssSSS}.txt");
+
+        from("direct:dlq.validation")
+            .routeId("dlq-validation-monitor")
+            .log(LoggingLevel.ERROR, "DLQ Validation Error: ${body}")
+            .setBody(simple("ValidationError at ${header.FailureTime}: ${body}"))
+            .to("file:output/dlq/validation-errors?fileName=validation-error-${date:now:yyyyMMdd-HHmmssSSS}.txt");
+    }
+}
+EOF
+Subtask 3.2: Run the DLQ Test Application and Generate Statistics
+Create the test application that sends several messages, including ones designed to exhaust retries and land in the DLQ, then reports simple statistics by counting the resulting output files:
+cat > src/main/java/com/alnafi/camel/errorhandling/DLQTestApplication.java << 'EOF'
+package com.alnafi.camel.errorhandling;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.ProducerTemplate;
+import org.apache.camel.impl.DefaultCamelContext;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+public class DLQTestApplication {
+
+    public static void main(String[] args) throws Exception {
+        CamelContext context = new DefaultCamelContext();
+        context.addRoutes(new DLQRouteBuilder());
+
+        Files.createDirectories(Paths.get("output/success"));
+        Files.createDirectories(Paths.get("output/dlq/runtime-errors"));
+        Files.createDirectories(Paths.get("output/dlq/validation-errors"));
+
+        context.start();
+
+        ProducerTemplate template = context.createProducerTemplate();
+
+        System.out.println("=== Testing Dead Letter Queue Functionality ===");
+
+        System.out.println("\n1. Testing message that goes to DLQ after retries...");
+        template.sendBody("direct:input.messages", "NETWORK_ERROR - This will fail and go to DLQ");
+        Thread.sleep(4000);
+
+        System.out.println("\n2. Testing validation error (immediate DLQ)...");
+        template.sendBody("direct:input.messages", "VALIDATION_ERROR - Invalid format");
+        Thread.sleep(1000);
+
+        System.out.println("\n3. Testing successful message...");
+        template.sendBody("direct:input.messages", "SUCCESS - This will process normally");
+        Thread.sleep(1000);
+
+        System.out.println("\n4. Sending a batch of mixed messages...");
+        for (int i = 1; i <= 4; i++) {
+            if (i % 2 == 0) {
+                template.sendBody("direct:input.messages", "SUCCESS - Message " + i);
+            } else {
+                template.sendBody("direct:input.messages", "NETWORK_ERROR - Failed message " + i);
+            }
+            Thread.sleep(500);
+        }
+        Thread.sleep(4000);
+
+        displayResults();
+
+        context.stop();
+        System.out.println("\nDLQ test completed. Check output directories for detailed results.");
+    }
+
+    private static void displayResults() throws Exception {
+        System.out.println("\n=== Processing Results ===");
+        System.out.println("Success files: " +
+            Files.list(Paths.get("output/success")).count());
+        System.out.println("Runtime error DLQ files: " +
+            Files.list(Paths.get("output/dlq/runtime-errors")).count());
+        System.out.println("Validation error DLQ files: " +
+            Files.list(Paths.get("output/dlq/validation-errors")).count());
+    }
+}
+EOF
+Compile and run the DLQ test:
+mvn -q clean compile
+mvn -q exec:java -Dexec.mainClass="com.alnafi.camel.errorhandling.DLQTestApplication"
+Inspect the DLQ output content directly to confirm the error metadata was captured:
+cat output/dlq/runtime-errors/*.txt
+cat output/dlq/validation-errors/*.txt
+Deliverable: The console === Processing Results === block reports 3 success files (the SUCCESS message plus two even-numbered batch messages), at least 3 runtime error DLQ files (the initial NETWORK_ERROR message plus the odd-numbered batch failures), and 1 validation error DLQ file. Each DLQ file's content, viewed with cat, begins with RuntimeError at or ValidationError at followed by a timestamp and the original message body.
+
+Expected Outcomes
+By completing this lab, you should have:
+
+A working Camel route that retries transient RuntimeException failures with exponential backoff before giving up
+A separate error path that sends non-retryable IllegalArgumentException failures straight to a dedicated error handler with no wasted retries
+A functioning Dead Letter Queue pattern that tags failed messages with category and timestamp metadata and persists them to inspectable output files
+Troubleshooting
+Symptom: No files appear in output/dlq/runtime-errors after running DLQTestApplication. Diagnostic hint: Check the console log for retriesExhaustedLogLevel messages; if the Thread.sleep duration in the test application is shorter than maximumRedeliveries multiplied by the backoff delays, the DLQ route may not have run yet before the context stopped.
+Symptom: mvn exec:java fails with ClassNotFoundException or NoSuchMethodException for the main class. Diagnostic hint: Confirm the -Dexec.mainClass value matches the fully qualified class name exactly, and that mvn clean compile was run first so target/classes is up to date.
+Conclusion
+In this lab, you built and tested Apache Camel routes that implement layered error handling: retrying transient failures with exponential backoff, routing permanent validation errors directly to a dedicated handler, and channeling exhausted or unrecoverable failures into a Dead Letter Queue pattern with contextual metadata for later analysis. This distinction between retryable and non-retryable errors, and the practice of preserving failed messages rather than discarding them, are foundational patterns in resilient enterprise integration architectures. For further study, consider extending this lab to route the DLQ destinations to a real JMS broker such as ActiveMQ Artemis, add a scheduled route that periodically aggregates DLQ file counts into a summary report, or explore Camel's deadLetterChannel() shorthand and circuit breaker integration (camel-resilience4j) for even more production-ready failure isolation.
