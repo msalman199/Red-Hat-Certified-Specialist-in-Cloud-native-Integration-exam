@@ -1,0 +1,9 @@
+{
+  "messageType": "order",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "data": {
+    "orderId": "ORD-001",
+    "customer": "Alice Johnson",
+    "amount": 299.99
+  }
+}

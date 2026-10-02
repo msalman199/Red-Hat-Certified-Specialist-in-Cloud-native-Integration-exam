@@ -1,0 +1,6 @@
+Customer Order Details:
+Order ID: 12345
+Customer: John Doe
+Items: Laptop, Mouse, Keyboard
+Total: ,299.99
+Status: Processing
