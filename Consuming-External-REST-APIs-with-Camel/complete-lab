@@ -1,0 +1,518 @@
+Lab 12: Consuming External REST APIs with Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Set up Apache Camel routes to consume external REST APIs using the HTTP component
+Process and transform JSON data received from REST API responses
+Implement error handling for external API integrations
+Test REST API consumption with real-world examples
+Monitor and log API interactions for debugging purposes
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts and routing
+Familiarity with REST APIs and HTTP protocols
+Knowledge of JSON data format and processing
+Basic Java programming skills
+Understanding of Maven project structure
+This lab uses a Linux environment with the following tools. If you are working in a self-owned or provided cloud practice machine, verify these are installed, or install them with the commands shown:
+
+# Verify Java 11+ is installed
+java -version
+
+# Verify Maven is installed
+mvn -version
+
+# Verify curl is installed
+curl --version
+
+# On Debian/Ubuntu-based systems, install any missing tools:
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven curl
+All API calls in this lab target https://jsonplaceholder.typicode.com, a free public fake REST API used widely for testing and prototyping. No API key or authentication is required.
+
+Task 1: Set Up a Route to Consume an External REST API
+Subtask 1.1: Create the Maven Project Structure
+cd ~
+mkdir camel-rest-consumer
+cd camel-rest-consumer
+mkdir -p src/main/java/com/example/camel
+mkdir -p src/main/resources
+Subtask 1.2: Configure Maven Dependencies
+Create the pom.xml file:
+
+nano pom.xml
+Add the following complete content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>camel-rest-consumer</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.2</camel.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-http</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jackson</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-timer</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>com.example.camel.RestConsumerApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.3: Implement the REST API Consumer Route
+Create the route builder class:
+
+nano src/main/java/com/example/camel/RestApiConsumerRoute.java
+Add the following complete implementation:
+
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.http.common.HttpMethods;
+
+public class RestApiConsumerRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Global error handler for network and API failures
+        onException(Exception.class)
+            .handled(true)
+            .log("ERROR occurred while calling external API: ${exception.message}")
+            .to("direct:handleError");
+
+        // Route 1: Fetch a small batch of posts from JSONPlaceholder
+        from("timer://fetchPosts?period=20000&repeatCount=3")
+            .routeId("fetch-posts-route")
+            .log("Fetching posts from JSONPlaceholder API...")
+            .setHeader(Exchange.HTTP_METHOD, constant(HttpMethods.GET))
+            .setHeader("Accept", constant("application/json"))
+            .to("https://jsonplaceholder.typicode.com/posts?_limit=5&bridgeEndpoint=true")
+            .log("Posts API responded with status ${header.CamelHttpResponseCode}")
+            .choice()
+                .when(header("CamelHttpResponseCode").isEqualTo(200))
+                    .to("direct:processPostsData")
+                .otherwise()
+                    .to("direct:handleApiError")
+            .end();
+
+        // Route 2: Fetch a single user's information
+        from("timer://fetchUser?period=25000&repeatCount=2")
+            .routeId("fetch-user-route")
+            .log("Fetching user information...")
+            .setHeader(Exchange.HTTP_METHOD, constant(HttpMethods.GET))
+            .setHeader("Accept", constant("application/json"))
+            .to("https://jsonplaceholder.typicode.com/users/1?bridgeEndpoint=true")
+            .log("Users API responded with status ${header.CamelHttpResponseCode}")
+            .choice()
+                .when(header("CamelHttpResponseCode").isEqualTo(200))
+                    .to("direct:processUserData")
+                .otherwise()
+                    .to("direct:handleApiError")
+            .end();
+
+        // Route 3: Process the posts array
+        from("direct:processPostsData")
+            .routeId("process-posts-route")
+            .log("Processing posts data...")
+            .split().jsonpath("$[*]")
+                .log("Post received - ID: ${body[id]}, Title: ${body[title]}")
+                .to("direct:savePostData")
+            .end();
+
+        // Route 4: Process the single user object
+        from("direct:processUserData")
+            .routeId("process-user-route")
+            .log("Processing user data...")
+            .unmarshal().json()
+            .log("User Info - Name: ${body[name]}, Email: ${body[email]}")
+            .to("direct:saveUserData");
+
+        // Route 5: Simulate saving post data
+        from("direct:savePostData")
+            .routeId("save-post-route")
+            .log("Saving post: ${body[title]}");
+
+        // Route 6: Simulate saving user data
+        from("direct:saveUserData")
+            .routeId("save-user-route")
+            .log("Saving user: ${body[name]}");
+
+        // Route 7: Handle non-200 API responses
+        from("direct:handleApiError")
+            .routeId("handle-api-error-route")
+            .log("API error handler triggered. Status code: ${header.CamelHttpResponseCode}");
+
+        // Route 8: Handle exceptions (timeouts, connection errors)
+        from("direct:handleError")
+            .routeId("general-error-handler-route")
+            .log("General error handler triggered.");
+    }
+}
+Note that this route uses split().jsonpath("$[*]") directly on the raw JSON string response, which Camel's JSONPath language can parse without a separate unmarshal().json() step. The single-user route uses unmarshal().json() because the body is one JSON object rather than an array, and downstream processors need it as a Map.
+
+Subtask 1.4: Create the Main Application Class
+nano src/main/java/com/example/camel/RestConsumerApplication.java
+Add the following complete code:
+
+package com.example.camel;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.impl.DefaultCamelContext;
+
+public class RestConsumerApplication {
+
+    public static void main(String[] args) throws Exception {
+        System.out.println("=== Starting Camel REST API Consumer ===");
+
+        CamelContext camelContext = new DefaultCamelContext();
+        camelContext.addRoutes(new RestApiConsumerRoute());
+        camelContext.start();
+
+        System.out.println("Camel REST Consumer started. Running for 70 seconds...");
+
+        Thread.sleep(70000);
+
+        System.out.println("=== Stopping Camel REST API Consumer ===");
+        camelContext.stop();
+        System.out.println("Application stopped successfully.");
+    }
+}
+Subtask 1.5: Build and Run
+mvn clean compile
+mvn exec:java
+Deliverable and expected result: The console shows log lines such as Fetching posts from JSONPlaceholder API..., followed by Posts API responded with status 200, then individual Post received - ID: ..., Title: ... lines for five posts, and later User Info - Name: ..., Email: ... output. The application exits cleanly after about 70 seconds with Application stopped successfully.
+
+Task 2: Transform and Enrich API Response Data
+Subtask 2.1: Create a Custom Data Transformation Processor
+nano src/main/java/com/example/camel/DataTransformProcessor.java
+Add the following complete code:
+
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.time.Instant;
+
+public class DataTransformProcessor implements Processor {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        String jsonBody = exchange.getIn().getBody(String.class);
+        JsonNode rootNode = objectMapper.readTree(jsonBody);
+
+        if (rootNode.isArray()) {
+            for (JsonNode postNode : rootNode) {
+                transformPost((ObjectNode) postNode);
+            }
+        } else if (rootNode.isObject()) {
+            transformPost((ObjectNode) rootNode);
+        }
+
+        exchange.getIn().setBody(objectMapper.writeValueAsString(rootNode));
+    }
+
+    private void transformPost(ObjectNode postNode) {
+        postNode.put("processedAt", Instant.now().toString());
+        postNode.put("source", "jsonplaceholder-api");
+
+        if (postNode.has("title")) {
+            String title = postNode.get("title").asText();
+            postNode.put("title", title.toUpperCase());
+        }
+
+        if (postNode.has("body")) {
+            String body = postNode.get("body").asText();
+            int wordCount = body.trim().isEmpty() ? 0 : body.trim().split("\\s+").length;
+            postNode.put("wordCount", wordCount);
+        }
+
+        if (postNode.has("userId")) {
+            int userId = postNode.get("userId").asInt();
+            String category = userId <= 5 ? "PRIORITY" : "STANDARD";
+            postNode.put("category", category);
+        }
+    }
+}
+Subtask 2.2: Create an Enhanced Route Using the Processor
+nano src/main/java/com/example/camel/EnhancedRestConsumerRoute.java
+Add the following complete implementation:
+
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.http.common.HttpMethods;
+
+public class EnhancedRestConsumerRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(Exception.class)
+            .handled(true)
+            .log("ERROR occurred: ${exception.message}")
+            .to("direct:handleError");
+
+        // Route 1: Fetch posts and apply transformation/enrichment
+        from("timer://enhancedPosts?period=20000&repeatCount=2")
+            .routeId("enhanced-posts-route")
+            .log("=== Starting Enhanced Posts Fetch ===")
+            .setHeader(Exchange.HTTP_METHOD, constant(HttpMethods.GET))
+            .setHeader("User-Agent", constant("Camel-REST-Consumer/1.0"))
+            .setHeader("Accept", constant("application/json"))
+            .to("https://jsonplaceholder.typicode.com/posts?_limit=5&bridgeEndpoint=true")
+            .log("Posts API Response Code: ${header.CamelHttpResponseCode}")
+            .choice()
+                .when(header("CamelHttpResponseCode").isEqualTo(200))
+                    .process(new DataTransformProcessor())
+                    .log("Data transformation completed")
+                    .to("direct:validateAndStore")
+                .otherwise()
+                    .to("direct:handleApiError")
+            .end();
+
+        // Route 2: Validate transformed data and store each post
+        from("direct:validateAndStore")
+            .routeId("validate-store-route")
+            .log("Validating transformed data...")
+            .split().jsonpath("$[*]")
+                .choice()
+                    .when(simple("${body[category]} != null"))
+                        .log("Storing post: ${body[title]} (Category: ${body[category]}, Words: ${body[wordCount]})")
+                        .to("direct:storeInDatabase")
+                    .otherwise()
+                        .log("Validation failed - post missing category field, skipping")
+                .end()
+            .end();
+
+        // Route 3: Simulated database storage
+        from("direct:storeInDatabase")
+            .routeId("store-database-route")
+            .log("DATABASE INSERT: ${body[title]}");
+
+        // Route 4: API-level error handler (non-200 responses)
+        from("direct:handleApiError")
+            .routeId("handle-api-error-route")
+            .log("=== API ERROR HANDLER ===")
+            .log("Response Code: ${header.CamelHttpResponseCode}")
+            .choice()
+                .when(header("CamelHttpResponseCode").isEqualTo(404))
+                    .log("Resource not found - skipping this cycle")
+                .when(header("CamelHttpResponseCode").isEqualTo(429))
+                    .log("Rate limit exceeded - backing off for 5 seconds")
+                    .delay(5000)
+                .otherwise()
+                    .log("Unexpected response code encountered")
+            .end();
+
+        // Route 5: Exception-level error handler (timeouts, connection errors)
+        from("direct:handleError")
+            .routeId("general-error-handler-route")
+            .log("=== GENERAL ERROR HANDLER ===")
+            .log("Exception message: ${exception.message}");
+    }
+}
+Subtask 2.3: Update the Main Application to Use the Enhanced Route
+nano src/main/java/com/example/camel/RestConsumerApplication.java
+Replace the file content entirely with:
+
+package com.example.camel;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.impl.DefaultCamelContext;
+
+public class RestConsumerApplication {
+
+    public static void main(String[] args) throws Exception {
+        System.out.println("=== Starting Camel REST API Consumer ===");
+
+        CamelContext camelContext = new DefaultCamelContext();
+        camelContext.addRoutes(new EnhancedRestConsumerRoute());
+        camelContext.start();
+
+        System.out.println("Enhanced Camel REST Consumer started. Running for 60 seconds...");
+
+        Thread.sleep(60000);
+
+        System.out.println("=== Stopping Camel REST API Consumer ===");
+        camelContext.stop();
+        System.out.println("Application stopped successfully.");
+    }
+}
+Compile and run:
+
+mvn clean compile
+mvn exec:java
+Deliverable and expected result: The console output shows Data transformation completed after each fetch, followed by Storing post: <TITLE IN UPPERCASE> (Category: PRIORITY or STANDARD, Words: <number>) for each of the 5 posts, and DATABASE INSERT: <TITLE IN UPPERCASE> lines confirming the simulated storage step ran for each post.
+
+Task 3: Add Monitoring and Test the Integration
+Subtask 3.1: Create a Monitoring Route
+nano src/main/java/com/example/camel/MonitoringRoute.java
+Add the following complete code:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class MonitoringRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        from("timer://monitor?period=30000&repeatCount=2")
+            .routeId("monitoring-route")
+            .log("=== API MONITORING CHECK ===")
+            .to("https://jsonplaceholder.typicode.com/posts/1?bridgeEndpoint=true")
+            .choice()
+                .when(header("CamelHttpResponseCode").isEqualTo(200))
+                    .log("API Health Check: HEALTHY (status ${header.CamelHttpResponseCode})")
+                .otherwise()
+                    .log("API Health Check: UNHEALTHY (status ${header.CamelHttpResponseCode})")
+            .end();
+    }
+}
+Subtask 3.2: Combine Routes in a Complete Test Application
+nano src/main/java/com/example/camel/CompleteTestApplication.java
+Add the following complete code:
+
+package com.example.camel;
+
+import org.apache.camel.CamelContext;
+import org.apache.camel.impl.DefaultCamelContext;
+
+public class CompleteTestApplication {
+
+    public static void main(String[] args) throws Exception {
+        System.out.println("=== Complete Camel REST API Consumer Test ===");
+        System.out.println("This run demonstrates: fetch, transform, validate, store, and monitor.");
+
+        CamelContext camelContext = new DefaultCamelContext();
+        camelContext.addRoutes(new EnhancedRestConsumerRoute());
+        camelContext.addRoutes(new MonitoringRoute());
+        camelContext.start();
+
+        System.out.println("All routes started. Running for 65 seconds...");
+
+        Thread.sleep(65000);
+
+        System.out.println("=== Stopping Application ===");
+        System.out.println("Total routes registered: " + camelContext.getRoutes().size());
+
+        camelContext.stop();
+        System.out.println("Application stopped successfully.");
+    }
+}
+Compile and run it directly with the exec plugin, overriding the main class:
+
+mvn clean compile
+mvn exec:java -Dexec.mainClass="com.example.camel.CompleteTestApplication"
+Subtask 3.3: Add Logging Configuration
+nano src/main/resources/simplelogger.properties
+Add the following complete content:
+
+org.slf4j.simpleLogger.defaultLogLevel=info
+org.slf4j.simpleLogger.log.org.apache.camel=info
+org.slf4j.simpleLogger.log.com.example.camel=debug
+org.slf4j.simpleLogger.showDateTime=true
+org.slf4j.simpleLogger.dateTimeFormat=yyyy-MM-dd HH:mm:ss
+org.slf4j.simpleLogger.showThreadName=false
+org.slf4j.simpleLogger.showLogName=true
+org.slf4j.simpleLogger.showShortLogName=false
+Re-run the complete test application so the new logging format takes effect:
+
+mvn clean compile
+mvn exec:java -Dexec.mainClass="com.example.camel.CompleteTestApplication"
+Subtask 3.4: Manually Verify the API with curl
+Independently confirm the API behavior that your routes depend on:
+
+echo "Testing Posts API..."
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" "https://jsonplaceholder.typicode.com/posts?_limit=3"
+
+echo "Testing Single Post API..."
+curl -s "https://jsonplaceholder.typicode.com/posts/1"
+
+echo ""
+echo "Testing Non-Existent Resource (expect 404)..."
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" "https://jsonplaceholder.typicode.com/posts/99999"
+Deliverable and expected result: The first curl call prints HTTP Status: 200. The second prints a JSON object containing "id": 1 and a "title" field. The third prints HTTP Status: 404, confirming your route's error-handling branch for missing resources is reachable and correctly triggered under real conditions.
+
+Expected Outcomes
+A working Maven-based Camel application that periodically fetches posts and user data from a live public REST API
+Transformed and enriched JSON output (uppercase titles, word counts, category tags) visible in console logs, along with a working health-check monitoring route
+Verified error-handling behavior for both non-200 HTTP responses and 404 resource-not-found cases, confirmed independently with curl
+Troubleshooting
+Issue 1: Application exits immediately or mvn exec:java reports "No plugin found" Symptom: the build fails before any routes run. Diagnostic hint: run mvn clean compile first and check that the exec-maven-plugin version and mainClass in pom.xml match the class you intend to run; confirm with mvn -version that Java 11 is active.
+
+Issue 2: No log output appears, or routes seem to hang Symptom: the console stays silent after "started successfully." Diagnostic hint: check outbound network connectivity with curl -I https://jsonplaceholder.typicode.com/posts/1, and verify simplelogger.properties is present under src/main/resources so SLF4J picks up your log level configuration.
+
+Conclusion
+In this lab, you built a complete Apache Camel application that consumes a live external REST API, transforms and enriches the JSON responses it receives, and stores the results through simulated downstream routes. You implemented comprehensive error handling for non-200 HTTP responses, rate-limiting scenarios, and general exceptions, ensuring the integration behaves predictably under real-world failure conditions. You also created a monitoring route that performs periodic health checks against the API, and you validated the entire pipeline using both the application's own logging and independent manual verification with curl.
+
+Through this process you practiced several skills central to production integration work: configuring HTTP-based Camel routes with proper headers and methods, writing custom processors with Jackson to reshape and enrich JSON payloads, structuring multi-route Camel applications with direct endpoints for separation of concerns, and building layered error handling that distinguishes between API-level errors and transport-level exceptions. As next steps, consider persisting the transformed data to a real database instead of logging it, adding authenticated API calls using headers such as Authorization: Bearer <token>, introducing retry and circuit-breaker patterns for greater resilience, and packaging the application as a container image for deployment in a production-like environment. You are now well positioned to apply these techniques to real-world API integration projects.

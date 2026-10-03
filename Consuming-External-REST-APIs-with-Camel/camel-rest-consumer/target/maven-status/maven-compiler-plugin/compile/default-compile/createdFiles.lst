@@ -1,0 +1,5 @@
+com/example/camel/RestConsumerApplication.class
+com/example/camel/RestApiConsumerRoute.class
+com/example/camel/CompleteTestApplication.class
+com/example/camel/DataTransformProcessor.class
+com/example/camel/MonitoringRoute.class
