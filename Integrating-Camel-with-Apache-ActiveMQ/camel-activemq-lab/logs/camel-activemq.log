@@ -1,0 +1,71 @@
+2026-10-03 01:36:58.828 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Starting Camel-ActiveMQ Integration Application
+2026-10-03 01:36:59.252 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Camel-ActiveMQ Integration Application started. Press Ctrl+C to stop.
+2026-10-03 01:36:59.253 [com.example.camel.CamelActiveMQApplication.main()] INFO  org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.7 is starting
+2026-10-03 01:36:59.917 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Configuring Camel routes for ActiveMQ integration
+2026-10-03 01:37:00.063 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Camel routes configured successfully
+2026-10-03 01:37:00.774 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) is starting
+2026-10-03 01:37:02.461 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Routes startup (started:3)
+2026-10-03 01:37:02.469 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started simple-transformation-route (jms://queue:input.queue)
+2026-10-03 01:37:02.473 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started order-processing-route (jms://queue:order.queue)
+2026-10-03 01:37:02.475 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started risky-processing-route (jms://queue:risky.queue)
+2026-10-03 01:37:02.540 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) started in 2s463ms (build:85ms init:675ms start:1s703ms JVM-uptime:22s)
+2026-10-03 01:40:54.963 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Starting Camel-ActiveMQ Integration Application
+2026-10-03 01:40:55.144 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Camel-ActiveMQ Integration Application started. Press Ctrl+C to stop.
+2026-10-03 01:40:55.145 [com.example.camel.CamelActiveMQApplication.main()] INFO  org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.7 is starting
+2026-10-03 01:40:55.627 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Configuring Camel routes for ActiveMQ integration
+2026-10-03 01:40:55.697 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Camel routes configured successfully
+2026-10-03 01:40:56.040 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) is starting
+2026-10-03 01:40:56.506 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Routes startup (started:3)
+2026-10-03 01:40:56.508 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started simple-transformation-route (jms://queue:input.queue)
+2026-10-03 01:40:56.508 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started order-processing-route (jms://queue:order.queue)
+2026-10-03 01:40:56.510 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started risky-processing-route (jms://queue:risky.queue)
+2026-10-03 01:40:56.569 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) started in 848ms (build:55ms init:324ms start:469ms JVM-uptime:6s)
+2026-10-03 01:43:55.816 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Starting Camel-ActiveMQ Integration Application
+2026-10-03 01:43:56.058 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Camel-ActiveMQ Integration Application started. Press Ctrl+C to stop.
+2026-10-03 01:43:56.058 [com.example.camel.CamelActiveMQApplication.main()] INFO  org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.7 is starting
+2026-10-03 01:43:56.543 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Configuring Camel routes for ActiveMQ integration
+2026-10-03 01:43:56.620 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Camel routes configured successfully
+2026-10-03 01:43:56.946 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) is starting
+2026-10-03 01:43:57.424 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Routes startup (started:3)
+2026-10-03 01:43:57.429 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started simple-transformation-route (jms://queue:input.queue)
+2026-10-03 01:43:57.429 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started order-processing-route (jms://queue:order.queue)
+2026-10-03 01:43:57.429 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started risky-processing-route (jms://queue:risky.queue)
+2026-10-03 01:43:57.479 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) started in 841ms (build:47ms init:312ms start:482ms JVM-uptime:6s)
+2026-10-03 02:05:09.856 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Starting Camel-ActiveMQ Integration Application
+2026-10-03 02:05:10.048 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Camel-ActiveMQ Integration Application started. Press Ctrl+C to stop.
+2026-10-03 02:05:10.049 [com.example.camel.CamelActiveMQApplication.main()] INFO  org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.7 is starting
+2026-10-03 02:05:10.554 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Configuring Camel routes for ActiveMQ integration
+2026-10-03 02:05:10.625 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Camel routes configured successfully
+2026-10-03 02:05:10.952 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) is starting
+2026-10-03 02:05:11.419 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Routes startup (started:3)
+2026-10-03 02:05:11.420 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started simple-transformation-route (jms://queue:input.queue)
+2026-10-03 02:05:11.420 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started order-processing-route (jms://queue:order.queue)
+2026-10-03 02:05:11.420 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started risky-processing-route (jms://queue:risky.queue)
+2026-10-03 02:05:11.508 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) started in 891ms (build:111ms init:311ms start:469ms JVM-uptime:6s)
+2026-10-03 02:05:52.940 [Thread-1] INFO  c.e.camel.CamelActiveMQApplication - Shutting down Camel-ActiveMQ Integration Application
+2026-10-03 02:05:52.943 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) is shutting down (timeout:45s)
+2026-10-03 02:05:53.562 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Routes stopped (stopped:3)
+2026-10-03 02:05:53.562 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Stopped risky-processing-route (jms://queue:risky.queue)
+2026-10-03 02:05:53.562 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Stopped order-processing-route (jms://queue:order.queue)
+2026-10-03 02:05:53.562 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Stopped simple-transformation-route (jms://queue:input.queue)
+2026-10-03 02:05:53.567 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) shutdown in 623ms (uptime:42s JVM-uptime:48s)
+2026-10-03 02:05:53.568 [com.example.camel.CamelActiveMQApplication.main()] INFO  org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.7 shutdown
+2026-10-03 02:18:45.648 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Starting Camel-ActiveMQ Integration Application
+2026-10-03 02:18:45.819 [com.example.camel.CamelActiveMQApplication.main()] INFO  c.e.camel.CamelActiveMQApplication - Camel-ActiveMQ Integration Application started. Press Ctrl+C to stop.
+2026-10-03 02:18:45.820 [com.example.camel.CamelActiveMQApplication.main()] INFO  org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.7 is starting
+2026-10-03 02:18:46.248 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Configuring Camel routes for ActiveMQ integration
+2026-10-03 02:18:46.315 [com.example.camel.CamelActiveMQApplication.main()] INFO  com.example.camel.CamelRouteBuilder - Camel routes configured successfully
+2026-10-03 02:18:46.664 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) is starting
+2026-10-03 02:18:47.142 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Routes startup (started:3)
+2026-10-03 02:18:47.143 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started simple-transformation-route (jms://queue:input.queue)
+2026-10-03 02:18:47.143 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started order-processing-route (jms://queue:order.queue)
+2026-10-03 02:18:47.143 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Started risky-processing-route (jms://queue:risky.queue)
+2026-10-03 02:18:47.225 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) started in 918ms (build:105ms init:335ms start:478ms JVM-uptime:6s)
+2026-10-03 02:20:01.830 [Thread-1] INFO  c.e.camel.CamelActiveMQApplication - Shutting down Camel-ActiveMQ Integration Application
+2026-10-03 02:20:01.841 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) is shutting down (timeout:45s)
+2026-10-03 02:20:02.274 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Routes stopped (stopped:3)
+2026-10-03 02:20:02.274 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Stopped risky-processing-route (jms://queue:risky.queue)
+2026-10-03 02:20:02.274 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Stopped order-processing-route (jms://queue:order.queue)
+2026-10-03 02:20:02.275 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext -     Stopped simple-transformation-route (jms://queue:input.queue)
+2026-10-03 02:20:02.280 [com.example.camel.CamelActiveMQApplication.main()] INFO  o.a.c.i.engine.AbstractCamelContext - Apache Camel 3.20.7 (camel-1) shutdown in 439ms (uptime:1m15s JVM-uptime:1m21s)
+2026-10-03 02:20:02.281 [com.example.camel.CamelActiveMQApplication.main()] INFO  org.apache.camel.main.MainSupport - Apache Camel (Main) 3.20.7 shutdown

@@ -1,0 +1,4 @@
+com/example/camel/MessageReceiver.class
+com/example/camel/CamelActiveMQApplication.class
+com/example/camel/CamelRouteBuilder.class
+com/example/camel/MessageSender.class
