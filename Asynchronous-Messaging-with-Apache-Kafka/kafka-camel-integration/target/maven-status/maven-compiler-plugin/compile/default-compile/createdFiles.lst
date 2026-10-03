@@ -1,0 +1,5 @@
+com/alnafi/kafka/lab/OrderConsumerRoute.class
+com/alnafi/kafka/lab/OrderProducerRoute.class
+com/alnafi/kafka/lab/Order.class
+com/alnafi/kafka/lab/KafkaCamelApplication.class
+com/alnafi/kafka/lab/App.class
