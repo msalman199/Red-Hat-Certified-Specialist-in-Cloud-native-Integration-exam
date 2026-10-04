@@ -1,0 +1,5 @@
+/home/ubuntu/camel-integration-lab/src/main/java/com/alnafi/integration/route/OrderProcessingRoute.java
+/home/ubuntu/camel-integration-lab/src/main/java/com/alnafi/integration/model/Order.java
+/home/ubuntu/camel-integration-lab/src/main/java/com/alnafi/integration/IntegrationApplication.java
+/home/ubuntu/camel-integration-lab/src/main/java/com/alnafi/integration/processor/CustomerEnrichmentProcessor.java
+/home/ubuntu/camel-integration-lab/src/main/java/com/alnafi/integration/processor/CsvOrderProcessor.java

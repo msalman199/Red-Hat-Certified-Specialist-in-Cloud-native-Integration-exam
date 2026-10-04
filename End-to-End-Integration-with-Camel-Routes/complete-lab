@@ -1,0 +1,506 @@
+Lab Material
+Lab 20: End-to-End Integration with Camel Routes
+Objectives
+By the end of this lab, students will be able to:
+
+Build an Apache Camel integration route that reads CSV order files from a directory and parses them into Java objects
+Enrich order data by querying a PostgreSQL database through Camel's JDBC component with a HikariCP connection pool
+Apply Enterprise Integration Patterns (Content Enricher, Content-Based Router, Dead Letter Channel) within a single Camel route
+Configure error handling with a dead letter channel and redelivery policy for failed messages
+Verify the integration end to end by dropping a sample order file and inspecting generated output files and log output
+Prerequisites
+Before starting this lab, students should have:
+
+Basic understanding of Java programming concepts and Maven project structure
+Familiarity with SQL basics (SELECT, INSERT statements)
+Experience with Linux command line operations
+Basic knowledge of CSV data formats
+Your practice environment should have the following installed. Verify each before continuing:
+
+java -version
+mvn -version
+psql --version
+If any are missing, install them with:
+
+sudo apt update
+sudo apt install -y openjdk-11-jdk maven postgresql postgresql-contrib
+Lab Environment Setup
+This lab uses an isolated, self-owned practice environment (a local Linux machine or VM). All components run locally: no external network calls or third-party services are contacted. This keeps the lab safe, repeatable, and fully offline-capable for defensive/educational integration training.
+
+Task 1: Project and Database Setup
+Subtask 1.1: Create Project Structure
+mkdir -p ~/camel-integration-lab
+cd ~/camel-integration-lab
+
+mkdir -p src/main/java/com/alnafi/integration/model
+mkdir -p src/main/java/com/alnafi/integration/processor
+mkdir -p src/main/java/com/alnafi/integration/route
+mkdir -p src/main/resources
+mkdir -p data/input data/output data/processed data/error
+Subtask 1.2: Create Maven Configuration
+nano pom.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi</groupId>
+    <artifactId>camel-integration-lab</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.2</camel.version>
+        <postgresql.version>42.5.4</postgresql.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-file</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jdbc</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-csv</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>5.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>com.alnafi.integration.IntegrationApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Deliverable: Running mvn validate in ~/camel-integration-lab completes with BUILD SUCCESS.
+
+Subtask 1.3: Initialize PostgreSQL Database
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+sudo -u postgres psql << 'EOF'
+CREATE DATABASE integration_lab;
+CREATE USER camel_user WITH PASSWORD 'camel_pass';
+GRANT ALL PRIVILEGES ON DATABASE integration_lab TO camel_user;
+EOF
+Create the schema and sample data:
+
+PGPASSWORD=camel_pass psql -h localhost -U camel_user -d integration_lab << 'EOF'
+CREATE TABLE customers (
+    customer_id SERIAL PRIMARY KEY,
+    customer_code VARCHAR(20) UNIQUE NOT NULL,
+    customer_name VARCHAR(100) NOT NULL,
+    email VARCHAR(100)
+);
+
+CREATE TABLE orders (
+    order_id SERIAL PRIMARY KEY,
+    order_number VARCHAR(50) UNIQUE NOT NULL,
+    customer_id INTEGER REFERENCES customers(customer_id),
+    total_amount DECIMAL(12,2),
+    status VARCHAR(20) DEFAULT 'PENDING',
+    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO customers (customer_code, customer_name, email) VALUES
+('CUST001', 'Tech Solutions Inc', 'orders@techsolutions.com'),
+('CUST002', 'Global Retail Corp', 'purchasing@globalretail.com'),
+('CUST003', 'Manufacturing Plus', 'orders@mfgplus.com');
+EOF
+Grant the application user rights on the sequences and tables (required because tables were created by camel_user itself, but running this explicitly avoids permission surprises):
+
+PGPASSWORD=camel_pass psql -h localhost -U camel_user -d integration_lab -c \
+  "GRANT ALL ON ALL TABLES IN SCHEMA public TO camel_user; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO camel_user;"
+Deliverable: Running PGPASSWORD=camel_pass psql -h localhost -U camel_user -d integration_lab -c "SELECT customer_code, customer_name FROM customers;" lists the three sample customers.
+
+Subtask 1.4: Create Database Configuration File
+nano src/main/resources/database.properties
+db.url=jdbc:postgresql://localhost:5432/integration_lab
+db.username=camel_user
+db.password=camel_pass
+db.driver=org.postgresql.Driver
+
+db.pool.maxPoolSize=10
+db.pool.minIdle=2
+db.pool.connectionTimeout=30000
+Task 2: Implement the Integration Route
+Subtask 2.1: Create Data Models
+nano src/main/java/com/alnafi/integration/model/Order.java
+package com.alnafi.integration.model;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public class Order {
+    private String orderNumber;
+    private String customerCode;
+    private LocalDateTime orderDate;
+    private BigDecimal totalAmount;
+    private String status;
+
+    private String customerName;
+    private String customerEmail;
+
+    public Order() {}
+
+    public Order(String orderNumber, String customerCode, BigDecimal totalAmount) {
+        this.orderNumber = orderNumber;
+        this.customerCode = customerCode;
+        this.totalAmount = totalAmount;
+        this.orderDate = LocalDateTime.now();
+        this.status = "PENDING";
+    }
+
+    public String getOrderNumber() { return orderNumber; }
+    public void setOrderNumber(String orderNumber) { this.orderNumber = orderNumber; }
+
+    public String getCustomerCode() { return customerCode; }
+    public void setCustomerCode(String customerCode) { this.customerCode = customerCode; }
+
+    public LocalDateTime getOrderDate() { return orderDate; }
+    public void setOrderDate(LocalDateTime orderDate) { this.orderDate = orderDate; }
+
+    public BigDecimal getTotalAmount() { return totalAmount; }
+    public void setTotalAmount(BigDecimal totalAmount) { this.totalAmount = totalAmount; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public String getCustomerName() { return customerName; }
+    public void setCustomerName(String customerName) { this.customerName = customerName; }
+
+    public String getCustomerEmail() { return customerEmail; }
+    public void setCustomerEmail(String customerEmail) { this.customerEmail = customerEmail; }
+
+    @Override
+    public String toString() {
+        return "Order{orderNumber='" + orderNumber + "', customerCode='" + customerCode +
+                "', totalAmount=" + totalAmount + ", status='" + status + "'}";
+    }
+}
+Subtask 2.2: Create the CSV Order Processor
+nano src/main/java/com/alnafi/integration/processor/CsvOrderProcessor.java
+package com.alnafi.integration.processor;
+
+import com.alnafi.integration.model.Order;
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+
+public class CsvOrderProcessor implements Processor {
+    private static final Logger logger = LoggerFactory.getLogger(CsvOrderProcessor.class);
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> csvData = exchange.getIn().getBody(List.class);
+
+        if (csvData == null || csvData.isEmpty()) {
+            throw new IllegalArgumentException("CSV data is empty");
+        }
+
+        Map<String, String> row = csvData.get(0);
+        String orderNumber = row.get("order_number");
+        String customerCode = row.get("customer_code");
+        BigDecimal totalAmount = new BigDecimal(row.get("total_amount"));
+
+        Order order = new Order(orderNumber, customerCode, totalAmount);
+
+        logger.info("Parsed order: {}", order);
+
+        exchange.getIn().setBody(order);
+    }
+}
+Subtask 2.3: Create the Customer Enrichment Processor
+nano src/main/java/com/alnafi/integration/processor/CustomerEnrichmentProcessor.java
+package com.alnafi.integration.processor;
+
+import com.alnafi.integration.model.Order;
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.Map;
+
+public class CustomerEnrichmentProcessor implements Processor {
+    private static final Logger logger = LoggerFactory.getLogger(CustomerEnrichmentProcessor.class);
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        Order order = exchange.getIn().getBody(Order.class);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> customerData =
+            (List<Map<String, Object>>) exchange.getProperty("customerData");
+
+        if (customerData != null && !customerData.isEmpty()) {
+            Map<String, Object> customer = customerData.get(0);
+            order.setCustomerName((String) customer.get("customer_name"));
+            order.setCustomerEmail((String) customer.get("email"));
+            logger.info("Enriched order {} with customer: {}", order.getOrderNumber(), order.getCustomerName());
+        } else {
+            logger.warn("No customer found for code: {}", order.getCustomerCode());
+            throw new IllegalStateException("Customer not found: " + order.getCustomerCode());
+        }
+
+        exchange.getIn().setBody(order);
+    }
+}
+Subtask 2.4: Create the Order Processing Route
+This route implements three Enterprise Integration Patterns: a Content Enricher (customer lookup via enrich), a Content-Based Router (choice/when/otherwise on order amount), and a Dead Letter Channel (failed files moved to data/error with retries).
+
+nano src/main/java/com/alnafi/integration/route/OrderProcessingRoute.java
+package com.alnafi.integration.route;
+
+import com.alnafi.integration.model.Order;
+import com.alnafi.integration.processor.CsvOrderProcessor;
+import com.alnafi.integration.processor.CustomerEnrichmentProcessor;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.apache.camel.Exchange;
+import org.apache.camel.LoggingLevel;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.component.jdbc.JdbcComponent;
+import org.apache.camel.model.dataformat.CsvDataFormat;
+
+import javax.sql.DataSource;
+import java.io.InputStream;
+import java.util.Properties;
+
+public class OrderProcessingRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+        configureDatabase();
+
+        CsvDataFormat csvFormat = new CsvDataFormat();
+        csvFormat.setUseMaps(true);
+        csvFormat.setSkipHeaderRecord(true);
+        csvFormat.setHeader(new String[]{"order_number", "customer_code", "total_amount"});
+
+        errorHandler(deadLetterChannel("file:data/error")
+                .maximumRedeliveries(3)
+                .redeliveryDelay(2000)
+                .retryAttemptedLogLevel(LoggingLevel.WARN));
+
+        from("file:data/input?move=../processed&moveFailed=../error&noop=false")
+                .routeId("order-file-processor")
+                .log("Processing order file: ${header.CamelFileName}")
+                .unmarshal(csvFormat)
+                .process(new CsvOrderProcessor())
+                .to("direct:enrich-customer")
+                .to("direct:route-order")
+                .log("Order processing completed: ${body.orderNumber}");
+
+        from("direct:enrich-customer")
+                .routeId("customer-enrichment")
+                .log("Enriching customer data for: ${body.customerCode}")
+                .enrich("direct:lookup-customer", (original, resource) -> {
+                    original.setProperty("customerData", resource.getIn().getBody());
+                    return original;
+                })
+                .process(new CustomerEnrichmentProcessor());
+
+        from("direct:lookup-customer")
+                .routeId("customer-lookup")
+                .setBody(simple("SELECT customer_name, email FROM customers WHERE customer_code = '${body.customerCode}'"))
+                .to("jdbc:dataSource")
+                .log("Customer lookup result: ${body}");
+
+        from("direct:route-order")
+                .routeId("order-routing")
+                .choice()
+                    .when(simple("${body.totalAmount} > 1000"))
+                        .log("High-value order: ${body.orderNumber}")
+                        .setHeader("orderTier", constant("HIGH"))
+                    .when(simple("${body.totalAmount} > 500"))
+                        .log("Medium-value order: ${body.orderNumber}")
+                        .setHeader("orderTier", constant("MEDIUM"))
+                    .otherwise()
+                        .log("Standard order: ${body.orderNumber}")
+                        .setHeader("orderTier", constant("STANDARD"))
+                .end()
+                .to("direct:save-order")
+                .to("direct:generate-report");
+
+        from("direct:save-order")
+                .routeId("save-order")
+                .process(exchange -> {
+                    Order order = exchange.getIn().getBody(Order.class);
+                    order.setStatus("PROCESSED");
+                })
+                .setBody(simple("INSERT INTO orders (order_number, customer_id, total_amount, status) " +
+                               "SELECT '${body.orderNumber}', customer_id, ${body.totalAmount}, '${body.status}' " +
+                               "FROM customers WHERE customer_code = '${body.customerCode}'"))
+                .to("jdbc:dataSource")
+                .log("Order saved successfully: ${header.orderTier}");
+
+        from("direct:generate-report")
+                .routeId("generate-report")
+                .process(exchange -> {
+                    Order order = exchange.getIn().getBody(Order.class);
+                    String tier = (String) exchange.getIn().getHeader("orderTier");
+                    StringBuilder report = new StringBuilder();
+                    report.append("ORDER CONFIRMATION\n");
+                    report.append("==================\n");
+                    report.append("Order Number: ").append(order.getOrderNumber()).append("\n");
+                    report.append("Customer: ").append(order.getCustomerName()).append("\n");
+                    report.append("Email: ").append(order.getCustomerEmail()).append("\n");
+                    report.append("Total Amount: $").append(order.getTotalAmount()).append("\n");
+                    report.append("Tier: ").append(tier).append("\n");
+                    report.append("Status: ").append(order.getStatus()).append("\n");
+
+                    exchange.getIn().setBody(report.toString());
+                    exchange.getIn().setHeader(Exchange.FILE_NAME,
+                                             "order_" + order.getOrderNumber() + "_confirmation.txt");
+                })
+                .to("file:data/output")
+                .log("Report generated: ${header.CamelFileName}");
+    }
+
+    private void configureDatabase() throws Exception {
+        Properties props = new Properties();
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("database.properties")) {
+            props.load(is);
+        }
+
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(props.getProperty("db.url"));
+        config.setUsername(props.getProperty("db.username"));
+        config.setPassword(props.getProperty("db.password"));
+        config.setMaximumPoolSize(Integer.parseInt(props.getProperty("db.pool.maxPoolSize", "10")));
+        config.setMinimumIdle(Integer.parseInt(props.getProperty("db.pool.minIdle", "2")));
+
+        DataSource dataSource = new HikariDataSource(config);
+        JdbcComponent jdbcComponent = new JdbcComponent();
+        jdbcComponent.setDataSource(dataSource);
+        getContext().addComponent("jdbc", jdbcComponent);
+    }
+}
+Subtask 2.5: Create the Application Entry Point
+nano src/main/java/com/alnafi/integration/IntegrationApplication.java
+package com.alnafi.integration;
+
+import com.alnafi.integration.route.OrderProcessingRoute;
+import org.apache.camel.main.Main;
+
+public class IntegrationApplication {
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+        main.configure().addRoutesBuilder(new OrderProcessingRoute());
+        main.run(args);
+    }
+}
+Deliverable: Running mvn compile in ~/camel-integration-lab completes with BUILD SUCCESS and no compilation errors.
+
+Task 3: Run and Verify the Integration
+Subtask 3.1: Start the Application
+cd ~/camel-integration-lab
+mvn compile exec:java
+Leave this running in its own terminal. You should see Camel startup log lines ending with routes started, for example lines containing Route: order-file-processor started.
+
+Subtask 3.2: Submit a Sample Order File
+In a second terminal, create a valid order CSV file:
+
+cat > ~/camel-integration-lab/data/input/order1.csv << 'EOF'
+order_number,customer_code,total_amount
+ORD-1001,CUST001,1250.00
+EOF
+Within a few seconds, watch the application terminal for log lines similar to:
+
+Processing order file: order1.csv
+Enriching customer data for: CUST001
+High-value order: ORD-1001
+Order saved successfully: HIGH
+Report generated: order_ORD-1001_confirmation.txt
+Verify the file moved out of the input directory and a report was created:
+
+ls ~/camel-integration-lab/data/processed
+ls ~/camel-integration-lab/data/output
+cat ~/camel-integration-lab/data/output/order_ORD-1001_confirmation.txt
+Deliverable: data/processed/order1.csv exists, and data/output/order_ORD-1001_confirmation.txt contains the customer name "Tech Solutions Inc", total amount 1250.00, and Tier HIGH.
+
+Subtask 3.3: Verify Database Persistence
+PGPASSWORD=camel_pass psql -h localhost -U camel_user -d integration_lab -c \
+  "SELECT order_number, total_amount, status FROM orders WHERE order_number = 'ORD-1001';"
+Deliverable: The query returns one row: ORD-1001 | 1250.00 | PROCESSED.
+
+Subtask 3.4: Test the Dead Letter Channel with an Invalid Order
+Submit an order referencing a customer code that does not exist, to trigger the enrichment failure and dead letter channel:
+
+cat > ~/camel-integration-lab/data/input/order2.csv << 'EOF'
+order_number,customer_code,total_amount
+ORD-1002,CUST999,300.00
+EOF
+Watch the application terminal for retry log lines at WARN level, followed by the file being moved to the error directory:
+
+ls ~/camel-integration-lab/data/error
+Deliverable: After the 3 configured redeliveries are exhausted, order2.csv appears in data/error, and no row for ORD-1002 exists in the orders table (confirm with the same psql query pattern as above using ORD-1002).
+
+Expected Outcomes
+A running Camel application that watches data/input, parses CSV orders, enriches them from PostgreSQL, routes them by value tier, persists them, and writes confirmation reports to data/output
+Clear evidence in logs and the filesystem of successful processing (processed/output files, database rows) versus failed processing (error directory, no database rows)
+Practical understanding of the Content Enricher, Content-Based Router, and Dead Letter Channel patterns working together in one route
+Troubleshooting
+Symptom: Application fails at startup with a connection refused or authentication error to PostgreSQL. Diagnostic hint: confirm the PostgreSQL service is running with sudo systemctl status postgresql and confirm you can connect manually using the exact credentials in database.properties with the psql command from Subtask 1.3.
+Symptom: CSV file is picked up but CsvOrderProcessor throws a NumberFormatException. Diagnostic hint: check that the CSV file has no extra blank lines or header mismatches, and that setSkipHeaderRecord(true) matches your file actually containing a header row.
+Conclusion
+In this lab, you built a working Apache Camel integration that reads CSV order files from a filesystem directory, enriches them with customer data from a PostgreSQL database through a HikariCP-backed JDBC connection, routes orders by value tier using a content-based router, and writes confirmation reports while persisting processed orders back to the database. You also configured and verified a dead letter channel so that orders referencing invalid data are retried and then quarantined in an error directory rather than silently failing. Through the input, processed, output, and error directories together with direct database queries, you confirmed both the successful and failure paths of the integration end to end. From here, you can extend the lab by adding a REST-based inventory check step, introducing a message filter for duplicate order numbers, or experimenting with different redelivery and backoff settings on the dead letter channel to observe their effect on failure handling.
