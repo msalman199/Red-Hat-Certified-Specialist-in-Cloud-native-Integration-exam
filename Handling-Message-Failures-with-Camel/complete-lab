@@ -1,0 +1,591 @@
+Lab 19: Handling Message Failures with Camel
+Objectives
+By the end of this lab, students will be able to:
+
+Understand Apache Camel's error handling mechanisms and strategies
+Implement retry policies for handling transient failures
+Configure dead letter queues (DLQ) for managing failed messages
+Create fallback processors to provide alternative processing paths
+Simulate various failure scenarios and validate recovery behaviors using log analysis and reporting scripts
+Prerequisites
+Before starting this lab, students should have:
+
+Basic understanding of Apache Camel framework and routing concepts
+Familiarity with Java programming language
+Knowledge of Maven build tool
+Understanding of enterprise integration patterns
+Basic Linux command line skills
+Your cloud machine should have the following installed. Verify each with the commands shown; install anything missing before proceeding.
+
+java -version
+mvn -version
+which bc || sudo apt-get update && sudo apt-get install -y bc
+Required tool versions:
+
+Java 11 or higher
+Apache Maven 3.6+
+Apache Camel 3.20.0 (pulled automatically by Maven from the pom.xml)
+bc command-line calculator (used later for percentage calculations)
+Lab Environment Setup
+Ready-to-Use Cloud Machines: Al Nafi provides Linux-based cloud machines with all necessary tools pre-installed. Simply click Start Lab to begin - no need to build your own VM or install software.
+
+Your cloud machine includes Java, Maven, and all required dependencies. All commands in this lab assume a bash shell on Linux.
+
+Task 1: Setting Up the Project and Error Handling Routes
+Subtask 1.1: Create the Base Project Structure
+Create the project directory and navigate to it:
+mkdir camel-error-handling-lab
+cd camel-error-handling-lab
+mkdir -p src/main/java/com/example/camel
+mkdir -p src/main/resources
+Create the pom.xml file:
+nano pom.xml
+Add the following content:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>camel-error-handling</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <camel.version>3.20.0</camel.version>
+        <slf4j.version>1.7.36</slf4j.version>
+        <exec.mainClass>com.example.camel.ErrorHandlingApplication</exec.mainClass>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-file</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>com.example.camel.ErrorHandlingApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.2: Create a Failure Simulation Processor
+nano src/main/java/com/example/camel/FailureSimulatorProcessor.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class FailureSimulatorProcessor implements Processor {
+
+    private final double failureRate;
+    private final Random random = new Random();
+    private final AtomicInteger processCount = new AtomicInteger(0);
+
+    public FailureSimulatorProcessor(double failureRate) {
+        this.failureRate = failureRate;
+    }
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        int count = processCount.incrementAndGet();
+        String body = exchange.getIn().getBody(String.class);
+
+        if (random.nextDouble() < failureRate) {
+            if (count % 3 == 0) {
+                throw new RuntimeException("Simulated runtime exception for message: " + body);
+            } else if (count % 5 == 0) {
+                throw new IllegalArgumentException("Simulated validation error for message: " + body);
+            } else {
+                throw new Exception("Simulated general exception for message: " + body);
+            }
+        }
+
+        exchange.getIn().setBody("Processed successfully: " + body + " (attempt #" + count + ")");
+        System.out.println("Successfully processed: " + body);
+    }
+}
+Subtask 1.3: Create Retry and Dead Letter Queue Routes
+nano src/main/java/com/example/camel/RetryRouteBuilder.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.LoggingLevel;
+
+public class RetryRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        errorHandler(defaultErrorHandler()
+            .maximumRedeliveries(3)
+            .redeliveryDelay(2000)
+            .retryAttemptedLogLevel(LoggingLevel.WARN)
+            .retriesExhaustedLogLevel(LoggingLevel.ERROR)
+            .logRetryAttempted(true)
+            .logExhausted(true));
+
+        from("file:input/retry?noop=true&delay=5000")
+            .routeId("retry-route")
+            .log("Processing message with retry strategy: ${body}")
+            .process(new FailureSimulatorProcessor(0.7))
+            .log("Message processed successfully: ${body}")
+            .to("file:output/retry");
+    }
+}
+nano src/main/java/com/example/camel/DeadLetterQueueRouteBuilder.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.LoggingLevel;
+
+public class DeadLetterQueueRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        errorHandler(deadLetterChannel("direct:dlq")
+            .maximumRedeliveries(2)
+            .redeliveryDelay(1000)
+            .retryAttemptedLogLevel(LoggingLevel.WARN)
+            .retriesExhaustedLogLevel(LoggingLevel.ERROR)
+            .logRetryAttempted(true)
+            .logExhausted(true)
+            .useOriginalMessage());
+
+        from("file:input/dlq?noop=true&delay=5000")
+            .routeId("dlq-main-route")
+            .log("Processing message with DLQ strategy: ${body}")
+            .process(new FailureSimulatorProcessor(0.8))
+            .log("Message processed successfully: ${body}")
+            .to("file:output/dlq/success");
+
+        from("direct:dlq")
+            .routeId("dlq-handler-route")
+            .log("Message sent to DLQ: ${body}")
+            .setHeader("FailureReason", simple("${exception.message}"))
+            .setHeader("OriginalDestination", constant("file:output/dlq/success"))
+            .setHeader("FailureTimestamp", simple("${date:now:yyyy-MM-dd HH:mm:ss}"))
+            .to("file:output/dlq/failed");
+    }
+}
+Deliverable for Task 1: A compiling Maven project with pom.xml, FailureSimulatorProcessor.java, RetryRouteBuilder.java, and DeadLetterQueueRouteBuilder.java in place. Verify with:
+
+mvn clean compile
+Expected result: BUILD SUCCESS printed at the end of the Maven output.
+
+Task 2: Implementing Fallback and Advanced Exception Routing
+Subtask 2.1: Create Fallback Processor and Fallback Route
+nano src/main/java/com/example/camel/FallbackProcessor.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
+
+public class FallbackProcessor implements Processor {
+
+    @Override
+    public void process(Exchange exchange) throws Exception {
+        String originalBody = exchange.getIn().getBody(String.class);
+
+        String fallbackResult = "FALLBACK_PROCESSED: " + originalBody + " [Processed via fallback mechanism]";
+
+        exchange.getIn().setBody(fallbackResult);
+        exchange.getIn().setHeader("ProcessingMethod", "FALLBACK");
+        exchange.getIn().setHeader("FallbackTimestamp", System.currentTimeMillis());
+
+        System.out.println("Fallback processing applied for: " + originalBody);
+    }
+}
+nano src/main/java/com/example/camel/FallbackRouteBuilder.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class FallbackRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        from("file:input/fallback?noop=true&delay=5000")
+            .routeId("fallback-route")
+            .log("Processing message with fallback strategy: ${body}")
+            .doTry()
+                .process(new FailureSimulatorProcessor(0.6))
+                .log("Primary processing successful: ${body}")
+                .to("file:output/fallback/primary")
+            .doCatch(Exception.class)
+                .log("Primary processing failed, applying fallback: ${exception.message}")
+                .process(new FallbackProcessor())
+                .log("Fallback processing completed: ${body}")
+                .to("file:output/fallback/fallback")
+            .end();
+
+        from("file:input/fallback-alt?noop=true&delay=5000")
+            .routeId("fallback-alt-route")
+            .onException(Exception.class)
+                .handled(true)
+                .log("Exception caught, applying fallback: ${exception.message}")
+                .process(new FallbackProcessor())
+                .to("file:output/fallback/alternative")
+            .end()
+            .log("Processing message with alternative fallback: ${body}")
+            .process(new FailureSimulatorProcessor(0.5))
+            .to("file:output/fallback/alt-primary");
+    }
+}
+Subtask 2.2: Create Advanced Exception-Routing Route
+nano src/main/java/com/example/camel/AdvancedErrorHandlingRouteBuilder.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class AdvancedErrorHandlingRouteBuilder extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        onException(IllegalArgumentException.class)
+            .handled(true)
+            .log("Validation error occurred: ${exception.message}")
+            .setHeader("ErrorType", constant("VALIDATION_ERROR"))
+            .process(new FallbackProcessor())
+            .to("file:output/advanced/validation-errors");
+
+        onException(RuntimeException.class)
+            .handled(true)
+            .maximumRedeliveries(2)
+            .redeliveryDelay(1000)
+            .log("Runtime error, retrying then routing: ${exception.message}")
+            .to("file:output/advanced/runtime-errors");
+
+        onException(Exception.class)
+            .handled(true)
+            .log("General exception caught: ${exception.message}")
+            .setHeader("ErrorType", constant("GENERAL_ERROR"))
+            .to("file:output/advanced/general-errors");
+
+        from("file:input/advanced?noop=true&delay=5000")
+            .routeId("advanced-error-handling-route")
+            .log("Processing message with advanced error handling: ${body}")
+            .choice()
+                .when(body().contains("VALIDATE"))
+                    .process(exchange -> {
+                        throw new IllegalArgumentException("Validation failed for: " +
+                            exchange.getIn().getBody(String.class));
+                    })
+                .when(body().contains("RUNTIME"))
+                    .process(exchange -> {
+                        throw new RuntimeException("Runtime error for: " +
+                            exchange.getIn().getBody(String.class));
+                    })
+                .when(body().contains("GENERAL"))
+                    .process(exchange -> {
+                        throw new Exception("General error for: " +
+                            exchange.getIn().getBody(String.class));
+                    })
+                .otherwise()
+                    .process(new FailureSimulatorProcessor(0.3))
+            .end()
+            .log("Message processed successfully: ${body}")
+            .to("file:output/advanced/success");
+    }
+}
+Subtask 2.3: Create the Main Application and Directory Structure
+nano src/main/java/com/example/camel/ErrorHandlingApplication.java
+Add the following content:
+
+package com.example.camel;
+
+import org.apache.camel.main.Main;
+
+public class ErrorHandlingApplication {
+
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+
+        main.addRouteBuilder(new RetryRouteBuilder());
+        main.addRouteBuilder(new DeadLetterQueueRouteBuilder());
+        main.addRouteBuilder(new FallbackRouteBuilder());
+        main.addRouteBuilder(new AdvancedErrorHandlingRouteBuilder());
+
+        main.configure().setShutdownTimeout(30);
+
+        System.out.println("Starting Camel Error Handling Application...");
+        System.out.println("Press Ctrl+C to stop the application");
+
+        main.run(args);
+    }
+}
+Create the required input/output directories:
+
+mkdir -p input/retry input/dlq input/fallback input/fallback-alt input/advanced
+mkdir -p output/retry output/dlq/success output/dlq/failed
+mkdir -p output/fallback/primary output/fallback/fallback output/fallback/alternative output/fallback/alt-primary
+mkdir -p output/advanced/success output/advanced/validation-errors output/advanced/runtime-errors output/advanced/general-errors
+Build the project:
+
+mvn clean package -DskipTests
+Deliverable for Task 2: All four route builders and the main application class compile cleanly, and mvn clean package -DskipTests ends with BUILD SUCCESS. The full input/ and output/ directory tree exists as shown above (verify with find input output -maxdepth 2 -type d).
+
+Task 3: Running the Application, Simulating Failures, and Reporting
+Subtask 3.1: Start the Application and Generate Test Messages
+Start the application in the background, redirecting logs to a file:
+mvn exec:java > application.log 2>&1 &
+Note the background job number that bash prints (for example [1] 12345) â�� the number after the bracket is the process ID (PID) you will use later to stop the application.
+
+Confirm the application started successfully:
+sleep 5
+tail -n 20 application.log
+Expected result: log lines showing Camel context startup and messages such as Routes startup summary with four routes listed (retry-route, dlq-main-route, fallback-route, fallback-alt-route, advanced-error-handling-route).
+
+Generate test messages for every route:
+echo "Test message for retry strategy - Message 1" > input/retry/retry-test-1.txt
+echo "Test message for retry strategy - Message 2" > input/retry/retry-test-2.txt
+echo "Test message for retry strategy - Message 3" > input/retry/retry-test-3.txt
+
+echo "DLQ test message - Message 1" > input/dlq/dlq-test-1.txt
+echo "DLQ test message - Message 2" > input/dlq/dlq-test-2.txt
+echo "DLQ test message - Message 3" > input/dlq/dlq-test-3.txt
+
+echo "Fallback test message - Primary processing" > input/fallback/fallback-test-1.txt
+echo "Fallback test message - Should trigger fallback" > input/fallback/fallback-test-2.txt
+
+echo "Alternative fallback test - Message 1" > input/fallback-alt/alt-test-1.txt
+echo "Alternative fallback test - Message 2" > input/fallback-alt/alt-test-2.txt
+
+echo "VALIDATE - This should trigger validation error" > input/advanced/validation-test.txt
+echo "RUNTIME - This should trigger runtime error" > input/advanced/runtime-test.txt
+echo "GENERAL - This should trigger general error" > input/advanced/general-test.txt
+echo "Normal message for processing" > input/advanced/normal-test.txt
+Wait for processing, then inspect output directories:
+sleep 20
+ls -la output/retry/
+ls -la output/dlq/success/ output/dlq/failed/
+ls -la output/fallback/primary/ output/fallback/fallback/
+ls -la output/advanced/success/ output/advanced/validation-errors/ output/advanced/runtime-errors/ output/advanced/general-errors/
+Expected result: files appear across the success/failure/fallback directories (the exact split varies run to run because of the random failure simulation, but every input file should end up in exactly one output directory per route).
+
+Subtask 3.2: Load Test and Analyze Results
+Create a load testing script:
+nano load-test.sh
+Add the following content:
+
+#!/bin/bash
+
+echo "Starting load test for Camel error handling..."
+
+for i in {1..10}; do
+    echo "Retry load test message $i - $(date)" > input/retry/load-test-retry-$i.txt
+    sleep 0.5
+done
+
+for i in {1..10}; do
+    echo "DLQ load test message $i - $(date)" > input/dlq/load-test-dlq-$i.txt
+    sleep 0.5
+done
+
+for i in {1..10}; do
+    echo "Fallback load test message $i - $(date)" > input/fallback/load-test-fallback-$i.txt
+    sleep 0.5
+done
+
+for i in {1..5}; do
+    echo "VALIDATE - Load test validation message $i" > input/advanced/load-test-validate-$i.txt
+    echo "RUNTIME - Load test runtime message $i" > input/advanced/load-test-runtime-$i.txt
+    echo "Normal load test message $i - $(date)" > input/advanced/load-test-normal-$i.txt
+    sleep 0.5
+done
+
+echo "Load test messages generated successfully!"
+chmod +x load-test.sh
+./load-test.sh
+Create a performance analysis script:
+nano analyze-performance.sh
+Add the following content:
+
+#!/bin/bash
+
+echo "=== Error Handling Performance Analysis ==="
+echo "Analysis timestamp: $(date)"
+echo
+
+retry_count=$(ls output/retry/ 2>/dev/null | wc -l)
+dlq_success_count=$(ls output/dlq/success/ 2>/dev/null | wc -l)
+dlq_failed_count=$(ls output/dlq/failed/ 2>/dev/null | wc -l)
+fallback_primary_count=$(ls output/fallback/primary/ 2>/dev/null | wc -l)
+fallback_fallback_count=$(ls output/fallback/fallback/ 2>/dev/null | wc -l)
+advanced_success_count=$(ls output/advanced/success/ 2>/dev/null | wc -l)
+advanced_validation_count=$(ls output/advanced/validation-errors/ 2>/dev/null | wc -l)
+advanced_runtime_count=$(ls output/advanced/runtime-errors/ 2>/dev/null | wc -l)
+advanced_general_count=$(ls output/advanced/general-errors/ 2>/dev/null | wc -l)
+
+echo "Retry Strategy:"
+echo "  Successfully processed: $retry_count messages"
+echo
+
+echo "Dead Letter Queue Strategy:"
+echo "  Successfully processed: $dlq_success_count messages"
+echo "  Failed (sent to DLQ): $dlq_failed_count messages"
+if [ $((dlq_success_count + dlq_failed_count)) -gt 0 ]; then
+    success_rate=$(echo "scale=2; $dlq_success_count * 100 / ($dlq_success_count + $dlq_failed_count)" | bc -l)
+    echo "  Success rate: ${success_rate}%"
+fi
+echo
+
+echo "Fallback Strategy:"
+echo "  Primary processing: $fallback_primary_count messages"
+echo "  Fallback processing: $fallback_fallback_count messages"
+if [ $((fallback_primary_count + fallback_fallback_count)) -gt 0 ]; then
+    primary_rate=$(echo "scale=2; $fallback_primary_count * 100 / ($fallback_primary_count + $fallback_fallback_count)" | bc -l)
+    echo "  Primary success rate: ${primary_rate}%"
+fi
+echo
+
+echo "Advanced Error Handling:"
+echo "  Successful processing: $advanced_success_count messages"
+echo "  Validation errors: $advanced_validation_count messages"
+echo "  Runtime errors: $advanced_runtime_count messages"
+echo "  General errors: $advanced_general_count messages"
+echo
+
+total_processed=$((retry_count + dlq_success_count + dlq_failed_count + fallback_primary_count + fallback_fallback_count + advanced_success_count + advanced_validation_count + advanced_runtime_count + advanced_general_count))
+echo "Total messages processed across all strategies: $total_processed"
+chmod +x analyze-performance.sh
+sleep 30
+./analyze-performance.sh
+Expected result: a printed report with non-zero counts in most categories, and a total-processed count that is greater than 0 and grows if you re-run the script after more time has passed.
+
+Subtask 3.3: Generate the Final Test Report
+Create the report generator script:
+nano generate-test-report.sh
+Add the following content:
+
+#!/bin/bash
+
+REPORT_FILE="error-handling-test-report.txt"
+
+echo "=== CAMEL ERROR HANDLING LAB TEST REPORT ===" > $REPORT_FILE
+echo "Generated on: $(date)" >> $REPORT_FILE
+echo "=========================================" >> $REPORT_FILE
+echo >> $REPORT_FILE
+
+echo "=== CONFIGURATION SUMMARY ===" >> $REPORT_FILE
+echo "- Retry Strategy: Max 3 retries, 2 second delay" >> $REPORT_FILE
+echo "- DLQ Strategy: Max 2 retries, 1 second delay" >> $REPORT_FILE
+echo "- Fallback Strategy: Immediate fallback on failure" >> $REPORT_FILE
+echo "- Advanced Handling: Exception-specific routing" >> $REPORT_FILE
+echo >> $REPORT_FILE
+
+echo "=== PROCESSING RESULTS ===" >> $REPORT_FILE
+./analyze-performance.sh >> $REPORT_FILE
+echo >> $REPORT_FILE
+
+echo "=== ERROR PATTERNS ANALYSIS ===" >> $REPORT_FILE
+echo -n "Retry attempts found: " >> $REPORT_FILE
+grep -c -i "retry" application.log 2>/dev/null >> $REPORT_FILE || echo "0" >> $REPORT_FILE
+echo -n "DLQ routing events: " >> $REPORT_FILE
+grep -c -i "DLQ" application.log 2>/dev/null >> $REPORT_FILE || echo "0" >> $REPORT_FILE
+echo -n "Fallback processing events: " >> $REPORT_FILE
+grep -c -i "Fallback" application.log 2>/dev/null >> $REPORT_FILE || echo "0" >> $REPORT_FILE
+echo >> $REPORT_FILE
+
+echo "=== SAMPLE ERROR MESSAGES ===" >> $REPORT_FILE
+echo "Recent error log entries:" >> $REPORT_FILE
+tail -50 application.log 2>/dev/null | grep -i error >> $REPORT_FILE || echo "No recent errors found" >> $REPORT_FILE
+echo >> $REPORT_FILE
+
+echo "=== RECOMMENDATIONS ===" >> $REPORT_FILE
+echo "1. Monitor DLQ messages regularly for business impact" >> $REPORT_FILE
+echo "2. Adjust retry delays based on downstream system capabilities" >> $REPORT_FILE
+echo "3. Implement alerting for high failure rates" >> $REPORT_FILE
+echo "4. Consider circuit breaker patterns for external dependencies" >> $REPORT_FILE
+echo >> $REPORT_FILE
+
+echo "Test report generated: $REPORT_FILE"
+Make the script executable and run it:
+chmod +x generate-test-report.sh
+./generate-test-report.sh
+Review the generated report:
+cat error-handling-test-report.txt
+Deliverable for Task 3: A file named error-handling-test-report.txt in the project root containing the configuration summary, non-zero processing counts, error pattern counts, and the recommendations block shown above.
+
+Subtask 3.4: Stop the Application and Verify Final State
+Identify and stop the running Camel application:
+jobs -l
+Use the PID shown for the mvn exec:java job, or find it directly:
+
+ps aux | grep ErrorHandlingApplication | grep -v grep
+kill <PID>
+Confirm shutdown:
+sleep 5
+ps aux | grep ErrorHandlingApplication | grep -v grep
+Expected result: no process is returned, and tail -n 20 application.log shows Camel's graceful shutdown messages (Apache Camel ... is shutting down followed by shutdown complete).
+
+Confirm no input files remain unprocessed:
+find input -type f
+Expected result: this command returns nothing, because the noop=true file endpoint copies each file for processing but the demonstration routes only read from the same directories once; if any files remain, it indicates the application was stopped before it finished consuming them, and you should restart it briefly with mvn exec:java > application.log 2>&1 &, wait, and stop it again.
+
+Expected Outcomes
+A working multi-route Camel application demonstrating retry, dead letter channel, doTry/doCatch fallback, onException fallback, and exception-type-based routing, all driven from file-based endpoints
+A generated error-handling-test-report.txt summarizing processing counts, success rates, and detected error patterns across all four strategies
+A clear, hands-on understanding of when messages end up in success, retry, fallback, or dead-letter output directories based on the configured failure rates
+Troubleshooting
+Use the following open-ended questions to diagnose problems yourself rather than following fixed steps:
+
+If output/dlq/failed/ never receives any files even though input/dlq/ messages were processed, what does that imply about the actual failure rate versus the configured maximumRedeliveries, and how would you use application.log to confirm whether messages are succeeding on retry before exhausting redeliveries?
+If the application process will not stop with a plain kill <PID>, what does that tell you about in-flight route processing or the shutdownTimeout setting, and what would you check in the logs before resorting to kill -9?
+Conclusion
+In this lab you built a single Camel application that demonstrates four complementary error-handling patterns side by side: automatic retry with a default error handler, dead letter channel routing for messages that exhaust their redeliveries, in-route fallback processing using both doTry/doCatch and onException, and exception-type-specific routing that separates validation errors, runtime errors, and general errors into distinct outcomes. Running the load test and analysis scripts against these routes showed concretely how failure rate, redelivery count, and exception type together determine whether a message ends up processed successfully, retried, redirected to a fallback, or parked in a dead letter queue. Retry policies are the right choice for transient, self-resolving failures; dead letter channels are best when failures need human or downstream review without blocking the main flow; fallback processing suits cases where an alternative, degraded result is acceptable; and exception-specific routing is valuable when different failure categories require different business responses. From here, consider extending the lab with a real message broker such as ActiveMQ or Kafka in place of file endpoints, and explore Camel's circuit breaker (Resilience4j) EIP for protecting calls to unreliable external services.

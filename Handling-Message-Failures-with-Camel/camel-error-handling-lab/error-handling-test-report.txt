@@ -1,0 +1,61 @@
+=== CAMEL ERROR HANDLING LAB TEST REPORT ===
+Generated on: Sun Oct  4 04:08:21 UTC 2026
+=========================================
+
+=== CONFIGURATION SUMMARY ===
+- Retry Strategy: Max 3 retries, 2 second delay
+- DLQ Strategy: Max 2 retries, 1 second delay
+- Fallback Strategy: Immediate fallback on failure
+- Advanced Handling: Exception-specific routing
+
+=== PROCESSING RESULTS ===
+=== Error Handling Performance Analysis ===
+Analysis timestamp: Sun Oct  4 04:08:21 UTC 2026
+
+Retry Strategy:
+  Successfully processed: 0 messages
+
+Dead Letter Queue Strategy:
+  Successfully processed: 0 messages
+  Failed (sent to DLQ): 0 messages
+
+Fallback Strategy:
+  Primary processing: 0 messages
+  Fallback processing: 0 messages
+
+Advanced Error Handling:
+  Successful processing: 0 messages
+  Validation errors: 0 messages
+  Runtime errors: 0 messages
+  General errors: 0 messages
+
+Total messages processed across all strategies: 0
+
+=== ERROR PATTERNS ANALYSIS ===
+Retry attempts found: 0
+0
+DLQ routing events: 0
+0
+Fallback processing events: 0
+0
+
+=== SAMPLE ERROR MESSAGES ===
+Recent error log entries:
+[[1;34mINFO[m] [1m------------------< [0;36mcom.example:camel-error-handling[0;1m >------------------[m
+[[1;34mINFO[m] [1mBuilding camel-error-handling 1.0.0[m
+[[1;34mINFO[m] [1m--- [0;32mexec-maven-plugin:3.1.0:java[m [1m(default-cli)[m @ [36mcamel-error-handling[0;1m ---[m
+[1;31mjava.lang.ClassNotFoundException[m: [1;31mcom.example.camel.ErrorHandlingApplication[m
+[[1;31mERROR[m] Failed to execute goal [32morg.codehaus.mojo:exec-maven-plugin:3.1.0:java[m [1m(default-cli)[m on project [36mcamel-error-handling[m: [1;31mAn exception occurred while executing the Java class. com.example.camel.ErrorHandlingApplication[m -> [1m[Help 1][m
+[[1;31mERROR[m] 
+[[1;31mERROR[m] To see the full stack trace of the errors, re-run Maven with the [1m-e[m switch.
+[[1;31mERROR[m] Re-run Maven using the [1m-X[m switch to enable full debug logging.
+[[1;31mERROR[m] 
+[[1;31mERROR[m] For more information about the errors and possible solutions, please read the following articles:
+[[1;31mERROR[m] [1m[Help 1][m http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException
+
+=== RECOMMENDATIONS ===
+1. Monitor DLQ messages regularly for business impact
+2. Adjust retry delays based on downstream system capabilities
+3. Implement alerting for high failure rates
+4. Consider circuit breaker patterns for external dependencies
+
