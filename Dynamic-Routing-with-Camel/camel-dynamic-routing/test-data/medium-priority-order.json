@@ -1,0 +1,8 @@
+{
+    "orderId": "ORD002",
+    "priority": "MEDIUM",
+    "amount": 500.0,
+    "category": "CLOTHING",
+    "region": "SOUTH",
+    "customerType": "STANDARD"
+}

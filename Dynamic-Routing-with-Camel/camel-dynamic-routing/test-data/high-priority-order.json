@@ -1,0 +1,8 @@
+{
+    "orderId": "ORD001",
+    "priority": "HIGH",
+    "amount": 1500.0,
+    "category": "ELECTRONICS",
+    "region": "NORTH",
+    "customerType": "PREMIUM"
+}

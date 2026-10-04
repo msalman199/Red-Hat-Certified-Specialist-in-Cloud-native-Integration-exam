@@ -1,0 +1,608 @@
+Lab 16: Dynamic Routing with Camel
+Objectives
+By the end of this lab, you will be able to:
+
+Understand the concept of dynamic routing in Apache Camel
+Implement dynamic routing using choice() and predicates
+Use an in-memory configuration service to drive routing decisions
+Create conditional logic for message routing based on message content
+Test dynamic routes with various data inputs and interpret the results
+Troubleshoot common dynamic routing and performance issues
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Apache Camel concepts and routing
+Familiarity with Java programming language
+Knowledge of the Maven build tool
+Understanding of REST APIs and HTTP protocols
+Basic knowledge of JSON data formats
+Experience with Linux command line operations
+Ready-to-Use Cloud Machines: Al Nafi provides Linux-based cloud machines with all necessary tools pre-installed. Simply click Start Lab to begin - no need to build your own VM or install software.
+
+Your cloud machine includes:
+
+Java 11 or higher
+Apache Maven 3.6+
+curl for testing HTTP endpoints
+Text editors (nano, vim)
+If you are working in your own environment instead of the provided cloud machine, verify your tools first:
+
+java -version
+mvn -version
+curl --version
+All Camel dependencies used in this lab are declared in the pom.xml below and will be downloaded automatically by Maven the first time you build the project, so no manual Camel installation is required.
+
+Task 1: Set Up Dynamic Routing with choice() and Predicates
+Subtask 1.1: Create the Project Structure
+Create a new Maven project for the dynamic routing implementation.
+
+mkdir -p camel-dynamic-routing
+cd camel-dynamic-routing
+
+mkdir -p src/main/java/com/example/routing
+mkdir -p src/main/resources
+mkdir -p test-data
+Subtask 1.2: Configure Maven Dependencies
+Create the pom.xml file with the necessary Camel dependencies:
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>camel-dynamic-routing</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.20.0</camel.version>
+        <slf4j.version>1.7.36</slf4j.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jetty</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jackson</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jsonpath</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Subtask 1.3: Create the Basic Dynamic Routing Class
+Create the main routing class that uses choice() and JSONPath predicates to route messages based on their content:
+
+// File: src/main/java/com/example/routing/DynamicRoutingExample.java
+package com.example.routing;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.main.Main;
+
+public class DynamicRoutingExample extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Route 1: Dynamic routing based on order priority
+        from("jetty:http://0.0.0.0:8080/orders")
+            .log("Received order: ${body}")
+            .choice()
+                .when(jsonpath("$.priority[?(@ == 'HIGH')]"))
+                    .log("Processing HIGH priority order")
+                    .to("direct:highPriorityProcessor")
+                .when(jsonpath("$.priority[?(@ == 'MEDIUM')]"))
+                    .log("Processing MEDIUM priority order")
+                    .to("direct:mediumPriorityProcessor")
+                .when(jsonpath("$.priority[?(@ == 'LOW')]"))
+                    .log("Processing LOW priority order")
+                    .to("direct:lowPriorityProcessor")
+                .otherwise()
+                    .log("Processing DEFAULT priority order")
+                    .to("direct:defaultProcessor")
+            .end()
+            .setBody(constant("Order processed successfully"));
+
+        // Route 2: Dynamic routing based on customer type
+        from("jetty:http://0.0.0.0:8080/customers")
+            .log("Received customer request: ${body}")
+            .choice()
+                .when(jsonpath("$.customerType[?(@ == 'PREMIUM')]"))
+                    .log("Routing to premium customer service")
+                    .to("direct:premiumService")
+                .when(jsonpath("$.customerType[?(@ == 'STANDARD')]"))
+                    .log("Routing to standard customer service")
+                    .to("direct:standardService")
+                .otherwise()
+                    .log("Routing to default customer service")
+                    .to("direct:defaultService")
+            .end()
+            .setBody(constant("Customer request processed"));
+
+        // Processor routes for orders
+        from("direct:highPriorityProcessor")
+            .log("HIGH Priority: Expedited processing")
+            .setHeader("Priority", constant("HIGH"));
+
+        from("direct:mediumPriorityProcessor")
+            .log("MEDIUM Priority: Standard processing")
+            .setHeader("Priority", constant("MEDIUM"));
+
+        from("direct:lowPriorityProcessor")
+            .log("LOW Priority: Batch processing")
+            .setHeader("Priority", constant("LOW"));
+
+        from("direct:defaultProcessor")
+            .log("DEFAULT Priority: Standard processing")
+            .setHeader("Priority", constant("DEFAULT"));
+
+        // Service routes for customers
+        from("direct:premiumService")
+            .log("Premium Service: VIP treatment")
+            .setHeader("ServiceLevel", constant("PREMIUM"));
+
+        from("direct:standardService")
+            .log("Standard Service: Regular treatment")
+            .setHeader("ServiceLevel", constant("STANDARD"));
+
+        from("direct:defaultService")
+            .log("Default Service: Standard treatment")
+            .setHeader("ServiceLevel", constant("DEFAULT"));
+    }
+
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+        main.configure().addRoutesBuilder(new DynamicRoutingExample());
+        main.run(args);
+    }
+}
+Subtask 1.4: Build and Test Basic Dynamic Routing
+Build the project:
+
+mvn clean compile
+Deliverable for this subtask: the build must finish with BUILD SUCCESS. If it does not, check that the pom.xml was saved exactly as shown above.
+
+In one terminal, start the application:
+
+mvn exec:java -Dexec.mainClass="com.example.routing.DynamicRoutingExample"
+Wait until you see log output indicating the Jetty endpoints are listening on port 8080 (a line similar to Started ServerConnector). In a second terminal, test the routes:
+
+curl -s -X POST http://localhost:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{"orderId": "ORD001", "priority": "HIGH", "amount": 1000}'
+echo
+
+curl -s -X POST http://localhost:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{"orderId": "ORD002", "priority": "MEDIUM", "amount": 500}'
+echo
+
+curl -s -X POST http://localhost:8080/customers \
+  -H "Content-Type: application/json" \
+  -d '{"customerId": "CUST001", "customerType": "PREMIUM", "name": "John Doe"}'
+echo
+Expected result: each curl command returns HTTP 200 with a plain text body (Order processed successfully or Customer request processed), and the terminal running the application logs the matching choice() branch, for example Processing HIGH priority order followed by HIGH Priority: Expedited processing. Leave the application running; you will reuse this pattern in Task 2. When you are done, stop it with Ctrl+C.
+
+Task 2: Use an External Configuration Service to Drive Routing Decisions
+Subtask 2.1: Create the Configuration Service
+Create a configuration service class that centralizes routing rules. In this lab, the service holds its rules as static in-memory Java data rather than reading from a file, which keeps the example simple and fully self-contained while still demonstrating how routing decisions can be externalized from the route logic itself:
+
+// File: src/main/java/com/example/routing/ConfigurationService.java
+package com.example.routing;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class ConfigurationService {
+
+    private static final Map<String, String> routingRules = new HashMap<>();
+    private static final Map<String, Integer> priorityWeights = new HashMap<>();
+    private static final double HIGH_VALUE_THRESHOLD = 1000.0;
+
+    static {
+        routingRules.put("ELECTRONICS", "direct:electronicsProcessor");
+        routingRules.put("CLOTHING", "direct:clothingProcessor");
+        routingRules.put("BOOKS", "direct:booksProcessor");
+        routingRules.put("FOOD", "direct:foodProcessor");
+
+        priorityWeights.put("URGENT", 1);
+        priorityWeights.put("HIGH", 2);
+        priorityWeights.put("MEDIUM", 3);
+        priorityWeights.put("LOW", 4);
+    }
+
+    public static String getRouteForCategory(String category) {
+        return routingRules.getOrDefault(category.toUpperCase(), "direct:defaultCategoryProcessor");
+    }
+
+    public static int getPriorityWeight(String priority) {
+        return priorityWeights.getOrDefault(priority.toUpperCase(), 5);
+    }
+
+    public static boolean isHighValueOrder(double amount) {
+        return amount > HIGH_VALUE_THRESHOLD;
+    }
+
+    public static String getProcessingQueue(String region) {
+        switch (region.toUpperCase()) {
+            case "NORTH":
+                return "direct:northRegionQueue";
+            case "SOUTH":
+                return "direct:southRegionQueue";
+            case "EAST":
+                return "direct:eastRegionQueue";
+            case "WEST":
+                return "direct:westRegionQueue";
+            default:
+                return "direct:defaultRegionQueue";
+        }
+    }
+}
+This class is the single source of truth for routing rules used in Subtask 2.2: any code that needs to know which endpoint handles a category, how heavily to weight a priority, or what counts as a high-value order calls into ConfigurationService instead of hardcoding that logic inline.
+
+Subtask 2.2: Create Advanced Dynamic Routing Using the Configuration Service
+Create the advanced routing class. Its process() steps call directly into ConfigurationService to decide where each message should go, which is what makes the routing "external data driven" rather than hardcoded inside choice() predicates:
+
+// File: src/main/java/com/example/routing/AdvancedDynamicRouting.java
+package com.example.routing;
+
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.main.Main;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class AdvancedDynamicRouting extends RouteBuilder {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public void configure() throws Exception {
+
+        // Route 1: Category-based dynamic routing using ConfigurationService
+        from("jetty:http://0.0.0.0:8080/products")
+            .log("Received product order: ${body}")
+            .process(exchange -> {
+                String body = exchange.getIn().getBody(String.class);
+                JsonNode json = objectMapper.readTree(body);
+                String category = json.get("category").asText();
+                String targetRoute = ConfigurationService.getRouteForCategory(category);
+                exchange.getIn().setHeader("targetRoute", targetRoute);
+                exchange.getIn().setHeader("category", category);
+            })
+            .recipientList(header("targetRoute"))
+            .setBody(constant("Product order routed successfully"));
+
+        // Route 2: Multi-criteria dynamic routing using ConfigurationService
+        from("jetty:http://0.0.0.0:8080/complex-orders")
+            .log("Received complex order: ${body}")
+            .process(exchange -> {
+                String body = exchange.getIn().getBody(String.class);
+                JsonNode json = objectMapper.readTree(body);
+
+                String priority = json.get("priority").asText();
+                double amount = json.get("amount").asDouble();
+                String region = json.get("region").asText();
+                String category = json.get("category").asText();
+
+                exchange.getIn().setHeader("priorityWeight",
+                    ConfigurationService.getPriorityWeight(priority));
+                exchange.getIn().setHeader("isHighValue",
+                    ConfigurationService.isHighValueOrder(amount));
+                exchange.getIn().setHeader("regionQueue",
+                    ConfigurationService.getProcessingQueue(region));
+                exchange.getIn().setHeader("categoryRoute",
+                    ConfigurationService.getRouteForCategory(category));
+            })
+            .choice()
+                .when(header("isHighValue").isEqualTo(true))
+                    .log("High value order - routing to premium processing")
+                    .to("direct:premiumProcessing")
+                .when(header("priorityWeight").isLessThan(3))
+                    .log("High priority order - routing to express processing")
+                    .to("direct:expressProcessing")
+                .otherwise()
+                    .log("Standard order - routing based on region and category")
+                    .recipientList(simple("${header.regionQueue},${header.categoryRoute}"))
+            .end()
+            .setBody(constant("Complex order processed"));
+
+        // Category processors
+        from("direct:electronicsProcessor")
+            .log("Processing electronics order")
+            .setHeader("ProcessingDepartment", constant("Electronics"));
+
+        from("direct:clothingProcessor")
+            .log("Processing clothing order")
+            .setHeader("ProcessingDepartment", constant("Clothing"));
+
+        from("direct:booksProcessor")
+            .log("Processing books order")
+            .setHeader("ProcessingDepartment", constant("Books"));
+
+        from("direct:foodProcessor")
+            .log("Processing food order")
+            .setHeader("ProcessingDepartment", constant("Food"));
+
+        from("direct:defaultCategoryProcessor")
+            .log("Processing general order")
+            .setHeader("ProcessingDepartment", constant("General"));
+
+        // Priority processors
+        from("direct:premiumProcessing")
+            .log("Premium processing for high-value order")
+            .setHeader("ProcessingType", constant("Premium"));
+
+        from("direct:expressProcessing")
+            .log("Express processing for high-priority order")
+            .setHeader("ProcessingType", constant("Express"));
+
+        // Regional queues
+        from("direct:northRegionQueue")
+            .log("Processing in North region")
+            .setHeader("ProcessingRegion", constant("North"));
+
+        from("direct:southRegionQueue")
+            .log("Processing in South region")
+            .setHeader("ProcessingRegion", constant("South"));
+
+        from("direct:eastRegionQueue")
+            .log("Processing in East region")
+            .setHeader("ProcessingRegion", constant("East"));
+
+        from("direct:westRegionQueue")
+            .log("Processing in West region")
+            .setHeader("ProcessingRegion", constant("West"));
+
+        from("direct:defaultRegionQueue")
+            .log("Processing in default region")
+            .setHeader("ProcessingRegion", constant("Central"));
+    }
+
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+        main.configure().addRoutesBuilder(new AdvancedDynamicRouting());
+        main.run(args);
+    }
+}
+Deliverable for this task: run mvn clean compile again and confirm BUILD SUCCESS. The deliverable is a compiling project where ConfigurationService is the only place routing rules are defined, and AdvancedDynamicRouting reads from it through process() blocks rather than duplicating rules inline.
+
+Task 3: Test the Dynamic Routes Using Different Data Inputs
+Subtask 3.1: Create Test Data Files
+Create sample JSON payloads representing different routing scenarios:
+
+cat > test-data/high-priority-order.json << 'EOF'
+{
+    "orderId": "ORD001",
+    "priority": "HIGH",
+    "amount": 1500.0,
+    "category": "ELECTRONICS",
+    "region": "NORTH",
+    "customerType": "PREMIUM"
+}
+EOF
+
+cat > test-data/medium-priority-order.json << 'EOF'
+{
+    "orderId": "ORD002",
+    "priority": "MEDIUM",
+    "amount": 500.0,
+    "category": "CLOTHING",
+    "region": "SOUTH",
+    "customerType": "STANDARD"
+}
+EOF
+
+cat > test-data/high-value-order.json << 'EOF'
+{
+    "orderId": "ORD004",
+    "priority": "MEDIUM",
+    "amount": 2500.0,
+    "category": "ELECTRONICS",
+    "region": "WEST",
+    "customerType": "PREMIUM"
+}
+EOF
+Subtask 3.2: Create an Automated Test Script
+cat > test-dynamic-routing.sh << 'EOF'
+#!/bin/bash
+
+echo "=== Testing Dynamic Routing with Camel ==="
+echo
+
+echo "1. Category-based Routing (Electronics):"
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST http://localhost:8080/products \
+  -H "Content-Type: application/json" \
+  -d '{"productId": "PROD001", "category": "ELECTRONICS", "name": "Laptop"}'
+
+echo
+echo "2. Category-based Routing (Unknown category, should hit default):"
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST http://localhost:8080/products \
+  -H "Content-Type: application/json" \
+  -d '{"productId": "PROD099", "category": "TOYS", "name": "Puzzle"}'
+
+echo
+echo "3. Complex Order Routing (High Value):"
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST http://localhost:8080/complex-orders \
+  -H "Content-Type: application/json" \
+  -d @test-data/high-value-order.json
+
+echo
+echo "4. Complex Order Routing (Standard Order):"
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST http://localhost:8080/complex-orders \
+  -H "Content-Type: application/json" \
+  -d @test-data/medium-priority-order.json
+
+echo
+echo "5. Complex Order Routing (High Priority):"
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST http://localhost:8080/complex-orders \
+  -H "Content-Type: application/json" \
+  -d @test-data/high-priority-order.json
+
+echo
+echo "=== All tests completed ==="
+EOF
+
+chmod +x test-dynamic-routing.sh
+Subtask 3.3: Run the Tests
+Start the advanced routing application in one terminal:
+
+mvn exec:java -Dexec.mainClass="com.example.routing.AdvancedDynamicRouting"
+In a second terminal, run the test script:
+
+./test-dynamic-routing.sh
+Expected result: every curl call in the script prints HTTP 200. In the application's terminal, verify the following log lines appear, confirming the configuration-driven routing worked as designed:
+
+For the electronics product: Processing electronics order
+For the unknown "TOYS" category: Processing general order (proving the getOrDefault fallback in ConfigurationService works)
+For the high-value order (amount: 2500.0): High value order - routing to premium processing
+For the medium-priority, non-high-value order: Standard order - routing based on region and category followed by both a regional queue log line and a category processor log line
+For the high-priority order (priority: HIGH, weight 2): High priority order - routing to express processing
+Stop the application with Ctrl+C when finished.
+
+Subtask 3.4: Write a Focused Performance Test
+Create a small concurrent load test to observe how the dynamic routes behave under multiple simultaneous requests:
+
+// File: src/main/java/com/example/routing/PerformanceTest.java
+package com.example.routing;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class PerformanceTest {
+
+    private static final String BASE_URL = "http://localhost:8080";
+    private static final HttpClient client = HttpClient.newHttpClient();
+    private static final AtomicInteger successCount = new AtomicInteger(0);
+    private static final AtomicInteger errorCount = new AtomicInteger(0);
+
+    public static void main(String[] args) throws Exception {
+        System.out.println("Starting performance test for dynamic routing...");
+
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        int totalRequests = 50;
+
+        for (int i = 0; i < totalRequests; i++) {
+            final int requestId = i;
+            executor.submit(() -> {
+                try {
+                    testProductRouting(requestId);
+                } catch (Exception e) {
+                    errorCount.incrementAndGet();
+                    System.err.println("Error in request " + requestId + ": " + e.getMessage());
+                }
+            });
+        }
+
+        executor.shutdown();
+        executor.awaitTermination(60, TimeUnit.SECONDS);
+
+        System.out.println("Performance test completed.");
+        System.out.println("Successful requests: " + successCount.get());
+        System.out.println("Failed requests: " + errorCount.get());
+    }
+
+    private static void testProductRouting(int id) throws Exception {
+        String[] categories = {"ELECTRONICS", "CLOTHING", "BOOKS", "FOOD"};
+        String category = categories[id % 4];
+
+        String json = String.format(
+            "{\"productId\": \"PROD%03d\", \"category\": \"%s\", \"name\": \"Product %d\"}",
+            id, category, id
+        );
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(BASE_URL + "/products"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(json))
+            .build();
+
+        HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 200) {
+            successCount.incrementAndGet();
+        } else {
+            errorCount.incrementAndGet();
+        }
+    }
+}
+With AdvancedDynamicRouting still running from Subtask 3.3, execute the performance test in a separate terminal:
+
+mvn exec:java -Dexec.mainClass="com.example.routing.PerformanceTest"
+Expected result: the summary printed at the end shows Successful requests: 50 and Failed requests: 0. If you see failed requests, confirm the application from Subtask 3.3 is still running and listening on port 8080.
+
+Expected Outcomes
+A working Camel application that routes messages to different destinations based on JSON content using choice() and JSONPath predicates
+A second Camel application whose routing decisions are driven by a centralized ConfigurationService, demonstrating separation of routing rules from route structure
+Verified, reproducible test results showing correct routing for priority-based, category-based, and multi-criteria scenarios, plus a clean 50-for-50 concurrent load test run
+Troubleshooting
+Issue 1: JSONPath Predicate Never Matches
+Symptom: every request falls through to the .otherwise() branch even when the field value looks correct (for example, a request with "priority": "HIGH" still logs Processing DEFAULT priority order).
+
+Diagnostic hint: check that the request body is valid JSON and that the Content-Type: application/json header was actually sent; also confirm the field name and casing in your JSON payload exactly match the JSONPath expression ($.priority, not $.Priority or $.order.priority).
+
+Issue 2: Repeated Configuration Lookups Slow Down High-Throughput Routes
+Symptom: under the load test in Subtask 3.4, throughput is noticeably lower than expected, or CPU usage seems high relative to the simple lookups being performed in ConfigurationService.
+
+Diagnostic hint: ConfigurationService already loads its maps once in a static initializer, so lookups are cheap in-memory HashMap reads. If you later replace it with a version that reads from a file or a remote source on every call, cache that result once at startup (as the static block already does here) rather than re-reading the source on every exchange; re-parsing configuration per-message is the most common cause of unnecessary latency in dynamic routing implementations.
+
+Conclusion
+In this lab you built two complementary dynamic routing implementations in Apache Camel: a straightforward version using choice() with JSONPath predicates directly against message content, and a more advanced version that delegates routing decisions to a centralized ConfigurationService. Along the way you validated routing behavior for priority-based orders, category-based products, and multi-criteria complex orders, confirming correct behavior through both manual curl tests and an automated test script, and you finished by running a concurrent performance test to observe the routes under load. You should now be able to explain the difference between routing logic embedded directly in predicates versus routing logic driven by an external configuration source, and you have a working, tested project structure you can extend with additional categories, regions, or priority rules. From here, a natural next step is to explore Camel's recipientList and dynamicRouter EIPs in more depth, or to back the configuration service with a real external source such as a database or a properties file loaded through Camel's property placeholder support.

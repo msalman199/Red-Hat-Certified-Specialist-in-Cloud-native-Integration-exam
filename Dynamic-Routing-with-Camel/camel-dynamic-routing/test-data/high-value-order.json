@@ -1,0 +1,8 @@
+{
+    "orderId": "ORD004",
+    "priority": "MEDIUM",
+    "amount": 2500.0,
+    "category": "ELECTRONICS",
+    "region": "WEST",
+    "customerType": "PREMIUM"
+}
