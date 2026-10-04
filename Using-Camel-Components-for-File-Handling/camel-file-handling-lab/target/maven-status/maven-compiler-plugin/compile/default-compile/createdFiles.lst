@@ -1,0 +1,8 @@
+com/example/camel/AdvancedFileRoute.class
+com/example/camel/MonitoringRoute$FileValidationProcessor.class
+com/example/camel/FileProcessingRoute$FileContentProcessor.class
+com/example/camel/MonitoringRoute.class
+com/example/camel/FileHandlingApplication.class
+com/example/camel/MonitoringRoute$StatisticsProcessor.class
+com/example/camel/FtpSftpRoute.class
+com/example/camel/FileProcessingRoute.class
