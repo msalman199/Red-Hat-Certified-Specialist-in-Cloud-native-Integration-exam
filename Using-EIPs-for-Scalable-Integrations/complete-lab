@@ -1,0 +1,564 @@
+Lab 17: Using EIPs for Scalable Integrations
+Objectives
+By the end of this lab, you will be able to:
+
+Understand and implement Enterprise Integration Patterns (EIPs) using Apache Camel
+Configure and use the Splitter pattern to divide large messages into smaller, manageable parts
+Implement the Aggregator pattern to combine related messages based on correlation IDs and completion conditions
+Deploy the Recipient List pattern for dynamic message routing to multiple endpoints
+Apply best practices for message correlation and processing in a multi-route integration flow
+Prerequisites
+Before starting this lab, you should have:
+
+Basic understanding of Java programming concepts
+Familiarity with the Maven build tool
+Understanding of messaging concepts (routing, correlation, aggregation)
+Basic command-line interface skills
+Ready-to-Use Cloud Machines: Al Nafi provides pre-configured Linux-based cloud machines with all necessary tools installed. Simply click Start Lab to access your environment - no need to build your own VM or install software.
+
+Your cloud machine includes OpenJDK 11, Apache Maven 3.8+, and Visual Studio Code. If any of these are missing, install them with:
+
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk maven
+Verify the installation:
+
+java -version
+mvn -version
+Task 1: Set Up the Project and Implement the Splitter Pattern
+Subtask 1.1: Create the Project Structure
+Open the terminal in your cloud machine and create a new directory for the project:
+mkdir -p ~/camel-eip-lab/camel-eip-patterns
+cd ~/camel-eip-lab/camel-eip-patterns
+mkdir -p src/main/java/com/alnafi/camel/eip/splitter
+mkdir -p src/main/java/com/alnafi/camel/eip/aggregator
+mkdir -p src/main/java/com/alnafi/camel/eip/recipientlist
+mkdir -p src/main/resources
+Create the pom.xml file:
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.alnafi.camel.eip</groupId>
+    <artifactId>camel-eip-patterns</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <camel.version>3.20.2</camel.version>
+        <slf4j.version>1.7.36</slf4j.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-core</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-main</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-jackson</artifactId>
+            <version>${camel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <source>11</source>
+                    <target>11</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+Compile the project to confirm dependencies resolve correctly:
+mvn clean compile
+Deliverable: The build must finish with BUILD SUCCESS. This confirms Maven can download all Camel dependencies and the empty project compiles.
+
+Subtask 1.2: Create the Order Data Model
+Create src/main/java/com/alnafi/camel/eip/splitter/OrderItem.java:
+package com.alnafi.camel.eip.splitter;
+
+public class OrderItem {
+    private String productId;
+    private String productName;
+    private int quantity;
+    private double price;
+
+    public OrderItem() {}
+
+    public OrderItem(String productId, String productName, int quantity, double price) {
+        this.productId = productId;
+        this.productName = productName;
+        this.quantity = quantity;
+        this.price = price;
+    }
+
+    public String getProductId() { return productId; }
+    public void setProductId(String productId) { this.productId = productId; }
+
+    public String getProductName() { return productName; }
+    public void setProductName(String productName) { this.productName = productName; }
+
+    public int getQuantity() { return quantity; }
+    public void setQuantity(int quantity) { this.quantity = quantity; }
+
+    public double getPrice() { return price; }
+    public void setPrice(double price) { this.price = price; }
+
+    @Override
+    public String toString() {
+        return "OrderItem{productId='" + productId + "', productName='" + productName +
+               "', quantity=" + quantity + ", price=" + price + "}";
+    }
+}
+Create src/main/java/com/alnafi/camel/eip/splitter/Order.java:
+package com.alnafi.camel.eip.splitter;
+
+import java.util.List;
+
+public class Order {
+    private String orderId;
+    private String customerId;
+    private List<OrderItem> items;
+
+    public Order() {}
+
+    public Order(String orderId, String customerId, List<OrderItem> items) {
+        this.orderId = orderId;
+        this.customerId = customerId;
+        this.items = items;
+    }
+
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+
+    public String getCustomerId() { return customerId; }
+    public void setCustomerId(String customerId) { this.customerId = customerId; }
+
+    public List<OrderItem> getItems() { return items; }
+    public void setItems(List<OrderItem> items) { this.items = items; }
+
+    @Override
+    public String toString() {
+        return "Order{orderId='" + orderId + "', customerId='" + customerId +
+               "', items=" + items + "}";
+    }
+}
+Deliverable: Two new Java files exist under splitter/. Run mvn clean compile again and confirm BUILD SUCCESS.
+
+Subtask 1.3: Implement the Splitter Route
+Create src/main/java/com/alnafi/camel/eip/splitter/SplitterRoute.java:
+
+package com.alnafi.camel.eip.splitter;
+
+import org.apache.camel.builder.RouteBuilder;
+import java.util.Arrays;
+import java.util.List;
+
+public class SplitterRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Generates a sample order every 5 seconds, up to 2 times
+        from("timer:orderGenerator?period=5000&repeatCount=2")
+            .routeId("order-generator")
+            .log("Generating sample order...")
+            .process(exchange -> {
+                List<OrderItem> items = Arrays.asList(
+                    new OrderItem("P001", "Laptop", 2, 999.99),
+                    new OrderItem("P002", "Mouse", 3, 29.99),
+                    new OrderItem("P003", "Keyboard", 2, 79.99),
+                    new OrderItem("P004", "Monitor", 1, 299.99)
+                );
+
+                Order order = new Order("ORD-" + System.currentTimeMillis(), "CUST-001", items);
+                exchange.getIn().setBody(order);
+                exchange.getIn().setHeader("originalOrderId", order.getOrderId());
+            })
+            .log("Created order: ${body}")
+            .to("direct:splitOrder");
+
+        // Splitter route - splits the order into individual OrderItem messages
+        from("direct:splitOrder")
+            .routeId("order-splitter")
+            .log("Splitting order into individual items...")
+            .split(simple("${body.items}"))
+                .streaming()
+                .process(exchange -> {
+                    OrderItem item = exchange.getIn().getBody(OrderItem.class);
+                    String originalOrderId = exchange.getIn().getHeader("originalOrderId", String.class);
+
+                    exchange.getIn().setHeader("correlationId", originalOrderId);
+                    exchange.getIn().setHeader("itemId", item.getProductId());
+
+                    log.info("Split item - OrderID: {}, ProductID: {}, Product: {}",
+                            originalOrderId, item.getProductId(), item.getProductName());
+                })
+                .to("direct:processItem")
+            .end()
+            .log("Order splitting completed");
+
+        // Individual item processing route
+        from("direct:processItem")
+            .routeId("item-processor")
+            .log("Processing individual item: ${header.itemId}")
+            .process(exchange -> {
+                OrderItem item = exchange.getIn().getBody(OrderItem.class);
+                double totalPrice = item.getQuantity() * item.getPrice();
+                exchange.getIn().setHeader("itemTotal", totalPrice);
+                log.info("Processed item {} - Total: {}", item.getProductId(), totalPrice);
+            })
+            .to("direct:aggregateItems");
+    }
+}
+Note: The direct:aggregateItems endpoint is implemented in Task 2. This route will not run standalone yet; it is wired into the full application at the end of Task 2.
+
+Deliverable: File compiles cleanly with mvn clean compile. No runnable output is expected yet since the aggregator endpoint does not exist until Task 2.
+
+Task 2: Implement the Aggregator Pattern
+Subtask 2.1: Create the Aggregated Order Model and Strategy
+Create src/main/java/com/alnafi/camel/eip/aggregator/AggregatedOrder.java:
+package com.alnafi.camel.eip.aggregator;
+
+import com.alnafi.camel.eip.splitter.OrderItem;
+import java.util.List;
+
+public class AggregatedOrder {
+    private String orderId;
+    private List<OrderItem> items;
+    private double totalAmount;
+    private int itemCount;
+    private long aggregationStartTime;
+    private long aggregationEndTime;
+
+    public AggregatedOrder() {
+        this.aggregationStartTime = System.currentTimeMillis();
+    }
+
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+
+    public List<OrderItem> getItems() { return items; }
+    public void setItems(List<OrderItem> items) { this.items = items; }
+
+    public double getTotalAmount() { return totalAmount; }
+    public void setTotalAmount(double totalAmount) { this.totalAmount = totalAmount; }
+
+    public int getItemCount() { return itemCount; }
+    public void setItemCount(int itemCount) { this.itemCount = itemCount; }
+
+    public long getAggregationStartTime() { return aggregationStartTime; }
+    public void setAggregationStartTime(long aggregationStartTime) {
+        this.aggregationStartTime = aggregationStartTime;
+    }
+
+    public long getAggregationEndTime() { return aggregationEndTime; }
+    public void setAggregationEndTime(long aggregationEndTime) {
+        this.aggregationEndTime = aggregationEndTime;
+    }
+
+    public long getAggregationDuration() {
+        return aggregationEndTime - aggregationStartTime;
+    }
+
+    @Override
+    public String toString() {
+        return "AggregatedOrder{" +
+                "orderId='" + orderId + '\'' +
+                ", itemCount=" + itemCount +
+                ", totalAmount=" + totalAmount +
+                ", aggregationDuration=" + getAggregationDuration() + "ms" +
+                '}';
+    }
+}
+Create src/main/java/com/alnafi/camel/eip/aggregator/OrderAggregationStrategy.java:
+package com.alnafi.camel.eip.aggregator;
+
+import com.alnafi.camel.eip.splitter.OrderItem;
+import org.apache.camel.AggregationStrategy;
+import org.apache.camel.Exchange;
+import java.util.ArrayList;
+
+public class OrderAggregationStrategy implements AggregationStrategy {
+
+    @Override
+    public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
+        OrderItem newItem = newExchange.getIn().getBody(OrderItem.class);
+        Double itemTotal = newExchange.getIn().getHeader("itemTotal", Double.class);
+
+        if (oldExchange == null) {
+            AggregatedOrder aggregatedOrder = new AggregatedOrder();
+            aggregatedOrder.setOrderId(newExchange.getIn().getHeader("correlationId", String.class));
+            aggregatedOrder.setItems(new ArrayList<>());
+            aggregatedOrder.getItems().add(newItem);
+            aggregatedOrder.setTotalAmount(itemTotal);
+            aggregatedOrder.setItemCount(1);
+
+            newExchange.getIn().setBody(aggregatedOrder);
+            return newExchange;
+        } else {
+            AggregatedOrder aggregatedOrder = oldExchange.getIn().getBody(AggregatedOrder.class);
+            aggregatedOrder.getItems().add(newItem);
+            aggregatedOrder.setTotalAmount(aggregatedOrder.getTotalAmount() + itemTotal);
+            aggregatedOrder.setItemCount(aggregatedOrder.getItemCount() + 1);
+
+            return oldExchange;
+        }
+    }
+}
+Deliverable: Both files compile with mvn clean compile and BUILD SUCCESS is shown.
+
+Subtask 2.2: Implement the Aggregator Route
+Create src/main/java/com/alnafi/camel/eip/aggregator/AggregatorRoute.java:
+
+package com.alnafi.camel.eip.aggregator;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class AggregatorRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Aggregator route - combines split items back into a complete order
+        from("direct:aggregateItems")
+            .routeId("item-aggregator")
+            .log("Aggregating item: ${header.itemId} for order: ${header.correlationId}")
+            .aggregate(header("correlationId"), new OrderAggregationStrategy())
+                .completionTimeout(3000)
+                .completionSize(4)
+                .log("Aggregation completed for order: ${header.correlationId}")
+                .process(exchange -> {
+                    AggregatedOrder order = exchange.getIn().getBody(AggregatedOrder.class);
+                    order.setAggregationEndTime(System.currentTimeMillis());
+
+                    log.info("Order aggregation completed: {}", order);
+                    log.info("Items aggregated: {}", order.getItemCount());
+                    log.info("Total amount: {}", order.getTotalAmount());
+                })
+                .to("direct:finalizeOrder")
+            .end();
+
+        // Final order processing route - applies simple business rules
+        from("direct:finalizeOrder")
+            .routeId("order-finalizer")
+            .log("Finalizing aggregated order: ${body.orderId}")
+            .process(exchange -> {
+                AggregatedOrder order = exchange.getIn().getBody(AggregatedOrder.class);
+
+                if (order.getTotalAmount() > 1000) {
+                    double discount = order.getTotalAmount() * 0.10;
+                    order.setTotalAmount(order.getTotalAmount() - discount);
+                    log.info("Applied 10% discount: {}", discount);
+                }
+
+                double tax = order.getTotalAmount() * 0.08;
+                order.setTotalAmount(order.getTotalAmount() + tax);
+
+                log.info("Final order total with tax: {}", order.getTotalAmount());
+            })
+            .to("direct:sendToRecipients");
+    }
+}
+Note: The direct:sendToRecipients endpoint is implemented in Task 3.
+
+Deliverable: File compiles cleanly with mvn clean compile.
+
+Subtask 2.3: Run the Splitter and Aggregator Together
+Since sendToRecipients does not exist yet, add a temporary terminating route so you can test Tasks 1 and 2 in isolation before building Task 3.
+
+Create src/main/java/com/alnafi/camel/eip/SplitterAggregatorApplication.java:
+package com.alnafi.camel.eip;
+
+import com.alnafi.camel.eip.aggregator.AggregatorRoute;
+import com.alnafi.camel.eip.splitter.SplitterRoute;
+import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.main.Main;
+
+public class SplitterAggregatorApplication {
+
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+
+        main.addRouteBuilder(new SplitterRoute());
+        main.addRouteBuilder(new AggregatorRoute());
+
+        // Temporary sink so this demo can run without the recipient list (Task 3)
+        main.addRouteBuilder(new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+                from("direct:sendToRecipients")
+                    .routeId("temporary-sink")
+                    .log("Final order ready for dispatch: ${body}");
+            }
+        });
+
+        main.configure().setName("SplitterAggregatorEIPDemo");
+
+        System.out.println("Starting Splitter-Aggregator EIP Demo...");
+        System.out.println("Generates 2 sample orders, splits each into 4 items, then aggregates them back.");
+        System.out.println("Press Ctrl+C to stop the application.");
+
+        main.run(args);
+    }
+}
+Run the application:
+mvn clean compile exec:java -Dexec.mainClass="com.alnafi.camel.eip.SplitterAggregatorApplication"
+Deliverable: Within about 10-15 seconds you should see two full cycles of log output showing: order generation, four items being split, each item being processed, aggregation completing ("Aggregation completed for order: ORD-..."), and a final line "Final order ready for dispatch". Stop the application with Ctrl+C once you see two completed orders.
+
+Task 3: Use Recipient List for Dynamic Message Dispatch
+Subtask 3.1: Create the Recipient List Resolver
+Create src/main/java/com/alnafi/camel/eip/recipientlist/OrderRecipientListResolver.java:
+
+package com.alnafi.camel.eip.recipientlist;
+
+import com.alnafi.camel.eip.aggregator.AggregatedOrder;
+import org.apache.camel.Exchange;
+import java.util.ArrayList;
+import java.util.List;
+
+public class OrderRecipientListResolver {
+
+    public static String resolveRecipients(Exchange exchange) {
+        AggregatedOrder order = exchange.getIn().getBody(AggregatedOrder.class);
+        List<String> recipients = new ArrayList<>();
+
+        // Always send to order processing
+        recipients.add("direct:orderProcessing");
+
+        // Send to shipping for orders over $50
+        if (order.getTotalAmount() > 50) {
+            recipients.add("direct:shippingArrangement");
+        }
+
+        // Send to finance for orders over $500
+        if (order.getTotalAmount() > 500) {
+            recipients.add("direct:financeApproval");
+        }
+
+        // Always notify the customer
+        recipients.add("direct:customerNotification");
+
+        String recipientList = String.join(",", recipients);
+        System.out.println("Recipients for order " + order.getOrderId() + ": " + recipientList);
+
+        return recipientList;
+    }
+}
+Deliverable: File compiles cleanly with mvn clean compile.
+
+Subtask 3.2: Create the Recipient List Route
+Create src/main/java/com/alnafi/camel/eip/recipientlist/RecipientListRoute.java:
+
+package com.alnafi.camel.eip.recipientlist;
+
+import org.apache.camel.builder.RouteBuilder;
+
+public class RecipientListRoute extends RouteBuilder {
+
+    @Override
+    public void configure() throws Exception {
+
+        // Recipient List - dynamically routes the finalized order to multiple endpoints
+        from("direct:sendToRecipients")
+            .routeId("recipient-list-router")
+            .log("Determining recipients for order: ${body.orderId}")
+            .recipientList(method(OrderRecipientListResolver.class, "resolveRecipients"))
+                .parallelProcessing()
+                .stopOnException()
+                .timeout(10000)
+            .end()
+            .log("Message sent to all recipients for order: ${body.orderId}");
+
+        from("direct:orderProcessing")
+            .routeId("order-processing-system")
+            .log("ORDER PROCESSING: Processing order ${body.orderId}");
+
+        from("direct:shippingArrangement")
+            .routeId("shipping-arrangement-system")
+            .log("SHIPPING: Arranging shipping for order ${body.orderId}");
+
+        from("direct:financeApproval")
+            .routeId("finance-approval-system")
+            .log("FINANCE: Processing finance approval for order ${body.orderId}");
+
+        from("direct:customerNotification")
+            .routeId("customer-notification-system")
+            .log("NOTIFICATION: Sending notification for order ${body.orderId}");
+    }
+}
+Deliverable: File compiles cleanly with mvn clean compile.
+
+Subtask 3.3: Assemble and Run the Complete EIP Application
+Create src/main/java/com/alnafi/camel/eip/CompleteEIPApplication.java:
+
+package com.alnafi.camel.eip;
+
+import com.alnafi.camel.eip.aggregator.AggregatorRoute;
+import com.alnafi.camel.eip.recipientlist.RecipientListRoute;
+import com.alnafi.camel.eip.splitter.SplitterRoute;
+import org.apache.camel.main.Main;
+
+public class CompleteEIPApplication {
+
+    public static void main(String[] args) throws Exception {
+        Main main = new Main();
+
+        main.addRouteBuilder(new SplitterRoute());
+        main.addRouteBuilder(new AggregatorRoute());
+        main.addRouteBuilder(new RecipientListRoute());
+
+        main.configure().setName("CompleteEIPDemo");
+
+        System.out.println("Starting Complete EIP Demo Application");
+        System.out.println("This demonstrates three Enterprise Integration Patterns:");
+        System.out.println("1. SPLITTER: Divides orders into individual items");
+        System.out.println("2. AGGREGATOR: Combines processed items back into complete orders");
+        System.out.println("3. RECIPIENT LIST: Routes finalized orders to multiple systems");
+        System.out.println("Order Generation -> Splitting -> Processing -> Aggregation -> Distribution");
+        System.out.println("Press Ctrl+C to stop the application.");
+
+        main.run(args);
+    }
+}
+Run the complete application:
+
+mvn clean compile exec:java -Dexec.mainClass="com.alnafi.camel.eip.CompleteEIPApplication"
+Deliverable: Observe two full end-to-end cycles in the console. Each cycle must show, in order: order generation, four "Split item" log lines, four "Processed item" log lines, an "Aggregation completed for order" line, a "Final order total with tax" line, a "Recipients for order ..." console line listing at least direct:orderProcessing, direct:shippingArrangement, and direct:customerNotification (since the sample order total exceeds $50), and finally log lines from ORDER PROCESSING, SHIPPING, and NOTIFICATION routes. Stop with Ctrl+C after the second cycle completes.
+
+Expected Outcomes
+A working Maven project that demonstrates the Splitter, Aggregator, and Recipient List EIPs using Apache Camel
+Console output showing a single generated order being split into four items, individually processed, aggregated back into one order with tax applied, and dynamically dispatched to multiple downstream routes
+A working understanding of how correlationId headers and completionSize/completionTimeout control aggregation, and how recipientList enables conditional, dynamic routing
+Troubleshooting
+Aggregation never completes / no "Aggregation completed" log appears: Check that completionSize(4) matches the actual number of items produced by the splitter, and confirm the correlationId header is being set consistently before the message reaches direct:aggregateItems.
+mvn exec:java fails with "No plugin found": Confirm the exec-maven-plugin is present in the pom.xml <build><plugins> section and that you ran mvn clean compile first so classes exist to execute.
+Conclusion
+In this lab, you built a multi-route Apache Camel application that implements three foundational Enterprise Integration Patterns end to end: the Splitter, which broke a composite order into individually processable items; the Aggregator, which used a correlation header and a custom AggregationStrategy with a completion size and timeout to reassemble those items into a finalized order; and the Recipient List, which dynamically dispatched the finalized order to a variable set of downstream routes based on runtime business conditions such as order total. Along the way you saw how headers propagate correlation state across routes, how streaming and completion conditions govern aggregator behavior, and how a resolver method can drive dynamic, conditional routing without hardcoding destinations into the route definition. As a next step, you could scale this design by replacing the direct endpoints with real messaging transports such as JMS or Kafka, persist aggregation state for recovery across restarts, and add error handling with dead letter channels to make the pipeline resilient under production load.

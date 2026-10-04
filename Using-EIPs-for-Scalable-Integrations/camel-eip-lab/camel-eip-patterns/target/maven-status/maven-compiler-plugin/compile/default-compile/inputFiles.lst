@@ -1,0 +1,10 @@
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/aggregator/AggregatedOrder.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/splitter/SplitterRoute.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/splitter/Order.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/aggregator/AggregatorRoute.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/SplitterAggregatorApplication.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/splitter/OrderItem.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/recipientlist/OrderRecipientListResolver.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/recipientlist/RecipientListRoute.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/CompleteEIPApplication.java
+/home/ubuntu/camel-eip-lab/camel-eip-patterns/src/main/java/com/alnafi/camel/eip/aggregator/OrderAggregationStrategy.java

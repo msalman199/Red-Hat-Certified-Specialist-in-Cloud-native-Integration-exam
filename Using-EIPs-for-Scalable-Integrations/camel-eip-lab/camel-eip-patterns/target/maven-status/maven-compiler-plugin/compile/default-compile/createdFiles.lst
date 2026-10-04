@@ -1,0 +1,4 @@
+com/alnafi/camel/eip/aggregator/AggregatedOrder.class
+com/alnafi/camel/eip/splitter/SplitterRoute.class
+com/alnafi/camel/eip/splitter/OrderItem.class
+com/alnafi/camel/eip/splitter/Order.class
